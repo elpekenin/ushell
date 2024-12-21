@@ -1,18 +1,15 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-
-    const mod = b.addModule("ushell", .{
+    _ = b.addModule("ushell", .{
         .root_source_file = b.path("src/mod.zig"),
     });
 
-    const exe = b.addExecutable(.{
-        .name = "echo",
-        .target = target,
-        .root_source_file = b.path("examples/echo.zig"),
-    });
-    exe.root_module.addImport("ushell", mod);
+    const test_step = b.step("test", "Run test suite");
 
-    b.installArtifact(exe);
+    const parser_tests = b.addTest(.{
+        .root_source_file = b.path("src/Parser.zig"),
+    });
+    const run_parser_tests = b.addRunArtifact(parser_tests);
+    test_step.dependOn(&run_parser_tests.step);
 }
