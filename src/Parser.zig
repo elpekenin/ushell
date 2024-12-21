@@ -175,10 +175,8 @@ fn parseStruct(self: *Self, T: type) !?T {
     var val: T = undefined;
     inline for (I.@"struct".fields) |field| {
         if (field.default_value) |def| {
-            // FIXME: is this casting correct?
-            const default_ptr: *align(field.alignment) const field.type = @alignCast(@ptrCast(def));
-
-            const value = try self.default(field.type, default_ptr.*);
+            const ptr: *align(field.alignment) const field.type = @alignCast(@ptrCast(def));
+            const value = try self.default(field.type, ptr.*);
             @field(val, field.name) = value;
         } else {
             @field(val, field.name) = try self.required(field.type);

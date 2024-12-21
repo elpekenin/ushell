@@ -109,11 +109,26 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
             self.print("{s}}}", .{fields[fields.len - 1].name});
         }
 
+        fn defaultValue(self: *Self, field: Type.StructField) void {
+            if (field.default_value) |def| {
+                const ptr: *align(field.alignment) const field.type = @alignCast(@ptrCast(def));
+
+                const I = @typeInfo(field.type);
+                switch (I) {
+                    // eg: show "=foo" instead of "=main.EnumName.foo" (not even valid input for parser)
+                    .@"enum" => self.print("={s}", .{@tagName(ptr.*)}),
+                    else => self.print("={}", .{ptr.*}),
+                }
+            }
+        }
+
         fn usageStruct(self: *Self, s: Type.Struct) void {
             inline for (s.fields) |field| {
                 self.print("{s}(", .{field.name});
                 self.usageImpl(field.type);
-                self.print(") ", .{});
+                self.print(")", .{});
+                self.defaultValue(field);
+                self.print(" ", .{});
             }
         }
 
