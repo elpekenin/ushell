@@ -6,15 +6,7 @@ const reader = std.io.getStdIn().reader().any();
 const writer = std.io.getStdOut().writer().any();
 
 const Commands = union(enum) {
-    clear: struct {
-        pub fn handle(_: *const @This()) !void {
-            try std.fmt.format(writer, "{s}", .{ushell.Escape.Clear});
-        }
-    },
-
     echo: struct {
-        pub const allow_extra_args = true;
-
         pub fn handle(_: *const @This(), parser: *ushell.Parser) !void {
             while (parser.next()) |val| {
                 try std.fmt.format(writer, "{s} ", .{val});

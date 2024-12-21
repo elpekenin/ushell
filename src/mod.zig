@@ -10,6 +10,7 @@ pub const Keys = @import("Keys.zig");
 pub const Parser = @import("Parser.zig");
 
 const BuiltinCommand = enum {
+    clear,
     help,
     exit,
 };
@@ -137,7 +138,9 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                         return;
                     };
 
+                    // TODO: Assert no extra args?
                     switch (builtin_command) {
+                        .clear => self.print("{s}", .{Escape.Clear}),
                         .exit => self.stop_running = true,
                         .help => self.help(),
                     }
