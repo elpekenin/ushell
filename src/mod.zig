@@ -3,8 +3,6 @@
 const std = @import("std");
 const Type = std.builtin.Type;
 
-const logger = std.log.scoped(.ushell);
-
 pub const Escape = @import("Escape.zig");
 pub const Keys = @import("Keys.zig");
 pub const Parser = @import("Parser.zig");
@@ -31,7 +29,13 @@ pub const ShellOptions = struct {
 
 /// A shell's type is defined by a `union(enum)` of different commands and some optional arguments.
 ///
-/// At runtime, an isntance of this type is created by calling `Shell.new` with a reader and writer.
+/// By default, extra arguments (more than strictly needed to fill the struct) will cause an error,
+/// you can opt-out this behaviour by adding `pub const allow_extra_args = true;` to your struct.
+///
+/// You can also overwrite the default `usage: ...` message by defining your own message to be shown,
+/// with `pub const usage = "my command should be used as: hello <world>";`
+///
+/// At runtime, an instance of this type is created by calling `Shell.new` with a reader and writer.
 ///
 /// See `examples/echo.zig` for a small demo.
 pub fn Shell(UserCommand: type, options: ShellOptions) type {
@@ -61,10 +65,7 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
         fn readByte(self: *Self) !?u8 {
             return self.reader.readByte() catch |err| switch (err) {
                 error.EndOfStream => return null, // nothing was read
-                else => |e| {
-                    logger.err("Unknown error on reader ({any})", .{e});
-                    return e;
-                },
+                else => return err,
             };
         }
 
@@ -164,11 +165,19 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
             }
         }
 
-        fn usage(self: *Self, cmd: UserCommand) void {
-            self.print("usage: {s} ", .{@tagName(cmd)});
+        fn usage(self: *Self, user_command: UserCommand) void {
+            switch (user_command) {
+                inline else => |command| {
+                    const Cmd = @TypeOf(command);
 
-            switch (cmd) {
-                inline else => |child| self.usageImpl(@TypeOf(child)),
+                    if (@hasDecl(Cmd, "usage")) {
+                        self.print("{s}", .{Cmd.usage});
+                    } else {
+                        // default implementation: introspection of arguments
+                        self.print("usage: {s} ", .{@tagName(user_command)});
+                        self.usageImpl(Cmd);
+                    }
+                }
             }
         }
 
@@ -181,39 +190,46 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
             }
         }
 
-        pub fn handle(self: *Self, line: []const u8) !void {
-            var parser = Parser.new(line);
+        fn assertArgsExhausted(self: *Self, parser: *Parser) !void {
+            if (parser.tokensLeft()) {
+                self.print("Too many args received\n", .{});
+                return error.TooManyArgs;
+            }
+        }
 
-            var command = parser.required(UserCommand) catch |err| {
-                logger.debug("Couldn't parse as UserCommand ({s})", .{@errorName(err)});
+        fn getBuiltinCommand(self: *Self, parser: *Parser) !BuiltinCommand {
+            parser.reset();
 
+            const builtin_command = parser.required(BuiltinCommand) catch |err| {
+                parser.reset();
+                self.print("unknown command: {s}", .{parser.next().?});
+
+                return err;
+            };
+
+            try self.assertArgsExhausted(parser);
+
+            return builtin_command;
+        }
+
+        fn getUserCommand(self: *Self, parser: *Parser) !?UserCommand {
+            return parser.required(UserCommand) catch |err| {
                 // no user input, do nothing
                 if (parser.successful_parses == 0 and err == error.MissingArg) {
-                    logger.debug("No input received", .{});
-                    return;
+                    return null;
                 }
 
                 // name did not exist in UserCommand, try and find into BuiltinCommand
                 if (parser.successful_parses == 0 and err == error.InvalidArg) {
-                    parser.reset();
+                    const builtin_command = try self.getBuiltinCommand(parser);
 
-                    const builtin_command = parser.required(BuiltinCommand) catch {
-                        logger.debug("Couldn't parse as BuiltinCommand", .{});
-
-                        parser.reset();
-                        self.print("unknown command: {s}", .{parser.next().?});
-
-                        return;
-                    };
-
-                    // TODO: Assert no extra args?
                     switch (builtin_command) {
                         .clear => self.print("{s}", .{Escape.Clear}),
                         .exit => self.stop_running = true,
                         .help => self.help(),
                     }
 
-                    return;
+                    return null;
                 }
 
                 // something went wrong while parsing
@@ -221,28 +237,35 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                 const name = parser.next().?;
 
                 const I = @typeInfo(UserCommand);
-
                 inline for (I.@"union".fields) |field| {
                     if (std.mem.eql(u8, field.name, name)) {
                         self.usage(@unionInit(UserCommand, field.name, undefined));
                     }
                 }
 
-                return;
+                return null;
             };
+        }
 
-            // TODO: Implement something like
-            // ```zig
-            // if (!@hasDecl(Command, "allow_extra_args") or !Command.allow_extra_args) {
-            //     if (parser.tokensLeft()) return error.TooManyArgs;
-            // }
-            // ```
-            logger.debug("Parsed ({any})", .{command});
-            return command.handle(&parser) catch |err| {
-                logger.debug("command.handle() ({s})", .{@errorName(err)});
-                self.usage(command);
-                return err;
-            };
+        pub fn handle(self: *Self, line: []const u8) !void {
+            var parser = Parser.new(line);
+
+            var user_command = try self.getUserCommand(&parser) orelse return;
+
+            // if anything goes wrong after this point, show usage
+            errdefer self.usage(user_command);
+
+            switch (user_command) {
+                inline else => |command| {
+                    const Cmd = @TypeOf(command);
+
+                    if (!@hasDecl(Cmd, "allow_extra_args") or !Cmd.allow_extra_args){
+                        try self.assertArgsExhausted(&parser);
+                    }
+                }
+            }
+
+            return user_command.handle(&parser);
         }
     };
 }
