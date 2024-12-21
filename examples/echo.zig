@@ -7,6 +7,9 @@ const writer = std.io.getStdOut().writer().any();
 
 const Commands = union(enum) {
     echo: struct {
+        pub const allow_extra_args = true;
+        pub const usage = "usage: echo ...args";
+
         pub fn handle(_: *const @This(), parser: *ushell.Parser) !void {
             while (parser.next()) |val| {
                 try std.fmt.format(writer, "{s} ", .{val});
@@ -24,13 +27,6 @@ const Commands = union(enum) {
     },
 
     pub fn handle(self: *Commands, parser: *ushell.Parser) !void {
-        switch (self.*) {
-            .echo => {},
-            else => if (parser.tokensLeft()) {
-                return error.TooManyArgs;
-            },
-        }
-
         return switch (self.*) {
             inline else => |child| child.handle(parser),
         };
