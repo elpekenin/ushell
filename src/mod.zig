@@ -30,9 +30,9 @@ pub const ShellOptions = struct {
 };
 
 /// A shell's type is defined by a `union(enum)` of different commands and some optional arguments.
-/// 
+///
 /// At runtime, an isntance of this type is created by calling `Shell.new` with a reader and writer.
-/// 
+///
 /// See `examples/echo.zig` for a small demo.
 pub fn Shell(UserCommand: type, options: ShellOptions) type {
     validate(UserCommand);
@@ -99,9 +99,62 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
             self.print("\n{s}", .{options.prompt});
         }
 
+        fn usageEnum(self: *Self, e: Type.Enum) void {
+            const fields = e.fields;
+
+            self.print("{{", .{});
+            inline for (fields[0 .. fields.len - 1]) |field| {
+                self.print("{s},", .{field.name});
+            }
+            self.print("{s}}}", .{fields[fields.len - 1].name});
+        }
+
+        fn usageStruct(self: *Self, s: Type.Struct) void {
+            inline for (s.fields) |field| {
+                self.print("{s}(", .{field.name});
+                self.usageImpl(field.type);
+                self.print(") ", .{});
+            }
+        }
+
+        fn usageUnion(self: *Self, u: Type.Union) void {
+            const fields = u.fields;
+
+            self.print("{{", .{});
+            inline for (fields[0 .. fields.len - 1]) |field| {
+                self.print("{s}(", .{field.name});
+                self.usageImpl(field.type);
+                self.print("),");
+            }
+            self.print("{s}(", .{fields[fields.len - 1].name});
+            self.usageImpl(fields[fields.len - 1].type);
+            self.print(")}}", .{});
+        }
+
+        fn usageImpl(self: *Self, T: type) void {
+            const I = @typeInfo(T);
+
+            switch (I) {
+                .bool, // TODO: Show string literals that cast to bool (?)
+                .int,
+                .float,
+                => self.print("{s}", .{@typeName(T)}),
+                .@"enum" => |e| self.usageEnum(e),
+                .@"struct" => |s| self.usageStruct(s),
+                .@"union" => |u| self.usageUnion(u),
+                else => {
+                    const msg = "Showing usage for arguments of type '" ++ @typeName(T) ++ "' not supported at the moment.";
+                    @compileError(msg);
+                },
+            }
+        }
+
         fn usage(self: *Self, cmd: UserCommand) void {
-            self.print("usage: {s} ...", .{@tagName(cmd)});
-            // TODO: implement
+            self.print("usage: {s} ", .{@tagName(cmd)});
+
+            switch (cmd) {
+                inline else => |child| self.usageImpl(@TypeOf(child)),
+            }
         }
 
         fn help(self: *Self) void {

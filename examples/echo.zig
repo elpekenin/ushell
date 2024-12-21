@@ -18,8 +18,8 @@ const Commands = union(enum) {
         foo: u8,
         bar: bool,
 
-        pub fn handle(self: *const @This()) !void {
-            try std.fmt.format(writer, "Received: {d} {}", .{self.foo, self.bar});
+        pub fn handle(self: *const @This(), _: *ushell.Parser) !void {
+            try std.fmt.format(writer, "Received: {d} {}", .{ self.foo, self.bar });
         }
     },
 
@@ -28,13 +28,11 @@ const Commands = union(enum) {
             .echo => {},
             else => if (parser.tokensLeft()) {
                 return error.TooManyArgs;
-            }
+            },
         }
 
         return switch (self.*) {
-            .clear => |child| child.handle(),
-            .echo => |child| child.handle(parser),
-            .number => |child| child.handle(),
+            inline else => |child| child.handle(parser),
         };
     }
 };

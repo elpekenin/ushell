@@ -151,6 +151,7 @@ fn parseEnum(self: *Self, T: type) !?T {
 
     inline for (I.@"enum".fields) |field| {
         if (std.mem.eql(u8, token, field.name)) {
+            self.successful_parses += 1;
             return @enumFromInt(field.value);
         }
     }
@@ -194,6 +195,7 @@ fn parseUnion(self: *Self, T: type) !?T {
 
     inline for (I.@"union".fields) |field| {
         if (std.mem.eql(u8, token, field.name)) {
+            self.successful_parses += 1;
             return @unionInit(T, field.name, try self.required(field.type));
         }
     }
@@ -299,12 +301,11 @@ test "struct" {
 
     // value overwrites default
     var parser = new("true 42 16");
-    try t.expectEqual(TestStruct{.foo = true, .bar = 42, .baz = 16}, try parser.required(TestStruct));
+    try t.expectEqual(TestStruct{ .foo = true, .bar = 42, .baz = 16 }, try parser.required(TestStruct));
 
     // default value is taken, not ignored/error out
     parser = new("false 1");
-    try t.expectEqual(TestStruct{.foo = false, .bar = 1}, try parser.required(TestStruct));
-
+    try t.expectEqual(TestStruct{ .foo = false, .bar = 1 }, try parser.required(TestStruct));
 }
 
 test "union" {
@@ -314,15 +315,15 @@ test "union" {
     };
 
     var parser = new("foo 0x16");
-    try t.expectEqual(TestUnion{.foo = 0x16}, try parser.required(TestUnion));
+    try t.expectEqual(TestUnion{ .foo = 0x16 }, try parser.required(TestUnion));
 
     parser = new("bar 1000");
-    try t.expectEqual(TestUnion{.bar = 1000}, try parser.required(TestUnion));
+    try t.expectEqual(TestUnion{ .bar = 1000 }, try parser.required(TestUnion));
 }
 
 test "nested" {
     const TestType = struct {
-        e: enum  {
+        e: enum {
             first,
             second,
         },
@@ -333,5 +334,5 @@ test "nested" {
     };
 
     var parser = new("second bar 10 true");
-    try t.expectEqualDeep(TestType{.e = .second, .u = .{.bar = .{ 10, true }}}, try parser.required(TestType));
+    try t.expectEqualDeep(TestType{ .e = .second, .u = .{ .bar = .{ 10, true } } }, try parser.required(TestType));
 }
