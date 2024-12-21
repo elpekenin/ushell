@@ -2,39 +2,62 @@ const std = @import("std");
 
 const ushell = @import("ushell");
 
-const Shell = ushell.Wrapper(struct {
-    const Self = @This();
+const reader = std.io.getStdIn().reader().any();
+const writer = std.io.getStdOut().writer().any();
 
-    const dummy_input = "echo hello world!\n";
-
-    reader: std.io.AnyReader,
-    stop_running: bool = false,
-
-    pub fn readByte(self: *Self) !u8 {
-        return self.reader.readByte();
-    }
-
-    pub const Commands = struct {
-        pub fn echo(self: *Self, parser: *ushell.Parser) !void {
-            while (parser.next()) |token| {
-                std.debug.print("{s} ", .{token});
-            }
-            std.debug.print("\n", .{});
-
-            self.stop_running = true;
+const Commands = union(enum) {
+    clear: struct {
+        pub fn handle(_: *const @This()) !void {
+            try std.fmt.format(writer, "{s}", .{ushell.Escape.Clear});
         }
-    };
-});
+    },
+
+    echo: struct {
+        pub const allow_extra_args = true;
+
+        pub fn handle(_: *const @This(), parser: *ushell.Parser) !void {
+            while (parser.next()) |val| {
+                try std.fmt.format(writer, "{s} ", .{val});
+            }
+        }
+    },
+
+    number: struct {
+        foo: u8,
+        bar: bool,
+
+        pub fn handle(self: *const @This()) !void {
+            try std.fmt.format(writer, "Received: {d} {}", .{self.foo, self.bar});
+        }
+    },
+
+    pub fn handle(self: *Commands, parser: *ushell.Parser) !void {
+        switch (self.*) {
+            .echo => {},
+            else => if (parser.tokensLeft()) {
+                return error.TooManyArgs;
+            }
+        }
+
+        return switch (self.*) {
+            .clear => |child| child.handle(),
+            .echo => |child| child.handle(parser),
+            .number => |child| child.handle(),
+        };
+    }
+};
+
+const Shell = ushell.Shell(Commands, .{});
 
 pub fn main() !void {
-    var shell = Shell.new(.{
-        .reader = std.io.getStdIn().reader().any(),
-    });
+    var shell = Shell.new(reader, writer);
 
-    while (!shell.inner.stop_running) {
-        std.debug.print("$ ", .{});
+    while (!shell.stop_running) {
+        shell.showPrompt();
 
-        const line = try shell.readline();
-        shell.handle(line) catch unreachable;
+        // do not break loop because of errors
+        const line = shell.readline() catch continue;
+
+        shell.handle(line) catch continue;
     }
 }

@@ -3,89 +3,62 @@
 const std = @import("std");
 const Type = std.builtin.Type;
 
-const logger = std.log.scoped(.terminal);
+const logger = std.log.scoped(.ushell);
 
 pub const Escape = @import("Escape.zig");
 pub const Keys = @import("Keys.zig");
 pub const Parser = @import("Parser.zig");
 
-fn Handler(Inner: type) type {
-    return *const fn (*Inner, *Parser) anyerror!void;
-}
+const BuiltinCommand = enum {
+    help,
+    exit,
+};
 
-fn findSpecial(Inner: type, name: []const u8) ?Handler(Inner) {
-    if (!@hasDecl(Inner, "Special")) return null;
-    if (!@hasDecl(Inner.Special, name)) return null;
-    return @field(Inner.Special, name);
-}
+fn validate(T: type) void {
+    const I = @typeInfo(T);
 
-/// Wrap a struct that "defines" a shell, adding some utilities.
-///
-/// `Inner` is expected to provide:
-///  * `fn readByte(*Inner) !u8`: A function used by this wrapper to read user input.
-///  * `Inner.Commands`: A `pub struct` defining commands
-///    * Each (pub) decl is a `fn <command_name>(*Inner, *ArgIterator)`. This is, a method where the second argument is an iterator to read the remaining of the input (eg: to parse arguments).
-///    * If present, the one named `@" "` will get executed if none matched (eg: to print error message).
-///
-/// `Outer` (the type returned) provides:
-///  * `fn new(Inner) Outer`: Create an instance from an instance of `Inner`
-///  * `fn readline(*Outer) ![]const u8`: Consume input until "\n" is received, retuning the string read.
-///  * `fn handle(*Outer, []const u8) !void`: Finds command name (first word in input) and -tries- executes the function with the same name within `Inner.Commands`, falling back to `@"not-found"` if available.
-///
-/// NOTE: Writing back (for user feedback) is out of scope -for now?- and has to be handled completely within `Inner`'s logic.
-pub fn Wrapper(comptime Inner: type) type {
-    if (@typeInfo(Inner) != .@"struct" or !@hasDecl(Inner, "Commands") or @typeInfo(Inner.Commands) != .@"struct") {
-        const msg = "Invalid input passed to `Wrapper()`, check the documentation comment";
+    if (I != .@"union") {
+        const msg = "Commands must be represented with a `union(enum)`";
         @compileError(msg);
     }
+}
 
-    const maybe_tab = findSpecial(Inner, "tab");
-    const maybe_fallback = findSpecial(Inner, "fallback");
+pub const ShellOptions = struct {
+    buffer_size: usize = 200,
+    prompt: []const u8 = "$ ",
+};
 
-    const Outer = struct {
+/// A shell's type is defined by a `union(enum)` of different commands and some optional arguments.
+/// 
+/// At runtime, an isntance of this type is created by calling `Shell.new` with a reader and writer.
+/// 
+/// See `examples/echo.zig` for a small demo.
+pub fn Shell(UserCommand: type, options: ShellOptions) type {
+    validate(UserCommand);
+
+    return struct {
         const Self = @This();
 
-        const Fn = Handler(Inner);
-        const KeyVal = struct { []const u8, Fn };
-        const CommandMap = std.StaticStringMap(Fn);
+        reader: std.io.AnyReader,
+        writer: std.io.AnyWriter,
+        buffer: std.BoundedArray(u8, options.buffer_size),
 
-        const rx_len = 1024;
-        const Buff = std.BoundedArray(u8, rx_len);
+        stop_running: bool,
 
-        inner: Inner,
-        commands: CommandMap,
-        buffer: Buff,
-
-        fn getKeyVals() []KeyVal {
-            const commands = @typeInfo(Inner.Commands).@"struct".decls;
-
-            var buffer: [commands.len]KeyVal = undefined;
-
-            for (commands, 0..) |command, i| {
-                const key = command.name;
-                const val = @field(Inner.Commands, key);
-
-                buffer[i] = KeyVal{ key, val };
-            }
-
-            return buffer[0..commands.len];
-        }
-
-        pub fn new(inner: Inner) Self {
-            const key_vals = comptime getKeyVals();
-            const map = CommandMap.initComptime(key_vals);
-
+        pub fn new(
+            reader: std.io.AnyReader,
+            writer: std.io.AnyWriter,
+        ) Self {
             return Self{
-                .inner = inner,
-                .commands = map,
-                // has size rx_len (>0), can't fail
-                .buffer = Buff.init(0) catch unreachable,
+                .reader = reader,
+                .writer = writer,
+                .buffer = undefined,
+                .stop_running = false,
             };
         }
 
-        /// Read one byte at a time, or null if nothing was to be read
-        fn read(self: *Self) !?u8 {
-            return self.inner.readByte() catch |err| switch (err) {
+        fn readByte(self: *Self) !?u8 {
+            return self.reader.readByte() catch |err| switch (err) {
                 error.EndOfStream => return null, // nothing was read
                 else => |e| {
                     logger.err("Unknown error on reader ({any})", .{e});
@@ -94,48 +67,111 @@ pub fn Wrapper(comptime Inner: type) type {
             };
         }
 
-        /// Call `.read()` in a loop until a newline is received, returning the string at that point
         pub fn readline(self: *Self) ![]const u8 {
-            self.buffer.clear(); // cleanup before using
+            self.buffer.clear();
 
             while (true) {
-                const byte = try self.read() orelse continue;
+                const byte = try self.readByte() orelse continue;
 
                 switch (byte) {
                     Keys.Newline => {
                         // input ready, return it to be handled
                         return self.buffer.constSlice();
                     },
-                    Keys.Tab => {
-                        if (maybe_tab) |tab| {
-                            var args = Parser.new(self.buffer.constSlice());
-                            try tab(&self.inner, &args);
-                        }
-                    },
+                    Keys.Tab => {},
                     Keys.Backspace => {
                         // backspace deletes previous char (if any)
                         _ = self.buffer.popOrNull();
                     },
                     else => {
-                        self.buffer.append(byte) catch std.debug.panic("Exhausted rx_buffer", .{});
+                        self.buffer.append(byte) catch std.debug.panic("Exhausted reception buffer", .{});
                     },
                 }
             }
         }
 
-        pub fn handle(self: *Self, line: []const u8) !void {
-            var args = Parser.new(line);
+        pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) void {
+            std.fmt.format(self.writer, fmt, args) catch unreachable;
+        }
 
-            const command_name = try args.commandName();
-            if (self.commands.get(command_name)) |func| {
-                return func(&self.inner, &args);
-            }
+        pub fn showPrompt(self: *Self) void {
+            self.print("\n{s}", .{options.prompt});
+        }
 
-            if (maybe_fallback) |fallback| {
-                return fallback(&self.inner, &args);
+        fn usage(self: *Self, cmd: UserCommand) void {
+            self.print("usage: {s} ...", .{@tagName(cmd)});
+            // TODO: implement
+        }
+
+        fn help(self: *Self) void {
+            const I = @typeInfo(UserCommand);
+
+            self.print("Available commands:", .{});
+            inline for (I.@"union".fields) |field| {
+                self.print("\n  * {s}", .{field.name});
             }
         }
-    };
 
-    return Outer;
+        pub fn handle(self: *Self, line: []const u8) !void {
+            var parser = Parser.new(line);
+
+            var command = parser.required(UserCommand) catch |err| {
+                logger.debug("Couldn't parse as UserCommand ({s})", .{@errorName(err)});
+
+                // no user input, do nothing
+                if (parser.successful_parses == 0 and err == error.MissingArg) {
+                    logger.debug("No input received", .{});
+                    return;
+                }
+
+                // name did not exist in UserCommand, try and find into BuiltinCommand
+                if (parser.successful_parses == 0 and err == error.InvalidArg) {
+                    parser.reset();
+
+                    const builtin_command = parser.required(BuiltinCommand) catch {
+                        logger.debug("Couldn't parse as BuiltinCommand", .{});
+
+                        parser.reset();
+                        self.print("unknown command: {s}", .{parser.next().?});
+
+                        return;
+                    };
+
+                    switch (builtin_command) {
+                        .exit => self.stop_running = true,
+                        .help => self.help(),
+                    }
+
+                    return;
+                }
+
+                // something went wrong while parsing
+                parser.reset();
+                const name = parser.next().?;
+
+                const I = @typeInfo(UserCommand);
+
+                inline for (I.@"union".fields) |field| {
+                    if (std.mem.eql(u8, field.name, name)) {
+                        self.usage(@unionInit(UserCommand, field.name, undefined));
+                    }
+                }
+
+                return;
+            };
+
+            // TODO: Implement something like
+            // ```zig
+            // if (!@hasDecl(Command, "allow_extra_args") or !Command.allow_extra_args) {
+            //     if (parser.tokensLeft()) return error.TooManyArgs;
+            // }
+            // ```
+            logger.debug("Parsed ({any})", .{command});
+            return command.handle(&parser) catch |err| {
+                logger.debug("command.handle() ({s})", .{@errorName(err)});
+                self.usage(command);
+                return err;
+            };
+        }
+    };
 }

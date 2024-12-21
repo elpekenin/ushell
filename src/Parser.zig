@@ -46,35 +46,25 @@ const max_bool_arg_len = blk: {
 };
 
 iterator: Iterator,
-command_name: ?[]const u8 = null,
+successful_parses: usize,
 
 /// Create this wrapper on top of a string
 pub fn new(line: []const u8) Self {
     return Self{
         .iterator = std.mem.splitAny(u8, line, delimiters),
+        .successful_parses = 0,
     };
 }
 
 /// Back to initial state
 pub fn reset(self: *Self) void {
     self.iterator.reset();
+    self.successful_parses = 0;
 }
 
 /// Return the input exactly as received
 pub fn rawLine(self: *const Self) []const u8 {
     return self.iterator.buffer;
-}
-
-/// Get the command name (first word in input)
-pub fn commandName(self: *Self) ![]const u8 {
-    if (self.command_name == null) {
-        self.iterator.reset();
-        self.command_name = self.next() orelse {
-            return error.NoCommand;
-        };
-    }
-
-    return self.command_name.?;
 }
 
 /// Get next element as is (ie: string)
@@ -114,12 +104,16 @@ pub fn optional(self: *Self, T: type) ArgError!?T {
 
 /// Parse next token as T, or default value if iterator exhausted
 pub fn default(self: *Self, T: type, default_value: T) ArgError!T {
-    return try self.optional(T) orelse default_value;
+    const val = try self.optional(T) orelse default_value;
+    self.successful_parses += 1;
+    return val;
 }
 
 /// Parse next token as T, or error.MissingArg if iterator exhausted
 pub fn required(self: *Self, T: type) ArgError!T {
-    return try self.optional(T) orelse error.MissingArg;
+    const val = try self.optional(T) orelse return error.MissingArg;
+    self.successful_parses += 1;
+    return val;
 }
 
 /// Confirm that is nothing left to parse
