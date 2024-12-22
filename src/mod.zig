@@ -177,14 +177,36 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                         self.print("usage: {s} ", .{@tagName(user_command)});
                         self.usageImpl(Cmd);
                     }
-                }
+                },
             }
         }
 
+        fn unknown(self: *Self, name: []const u8) void {
+            self.print("unknown command: {s}", .{name});
+        }
+
+        fn usageFor(self: *Self, name: []const u8) void {
+            const I = @typeInfo(UserCommand);
+
+            inline for (I.@"union".fields) |field| {
+                if (std.mem.eql(u8, field.name, name)) {
+                    self.usage(@unionInit(UserCommand, field.name, undefined));
+                    return;
+                }
+            }
+
+            self.unknown(name);
+        }
+
         fn help(self: *Self) void {
+            const B = @typeInfo(BuiltinCommand);
             const I = @typeInfo(UserCommand);
 
             self.print("Available commands:", .{});
+            inline for (B.@"enum".fields) |field| {
+                self.print("\n  * {s}", .{field.name});
+            }
+
             inline for (I.@"union".fields) |field| {
                 self.print("\n  * {s}", .{field.name});
             }
@@ -202,12 +224,16 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
 
             const builtin_command = parser.required(BuiltinCommand) catch |err| {
                 parser.reset();
-                self.print("unknown command: {s}", .{parser.next().?});
-
+                self.unknown(parser.next().?);
                 return err;
             };
 
-            try self.assertArgsExhausted(parser);
+            switch (builtin_command) {
+                .help => {},
+                .clear,
+                .exit,
+                => try self.assertArgsExhausted(parser),
+            }
 
             return builtin_command;
         }
@@ -226,7 +252,15 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                     switch (builtin_command) {
                         .clear => self.print("{s}", .{Escape.Clear}),
                         .exit => self.stop_running = true,
-                        .help => self.help(),
+                        .help => {
+                            if (parser.next()) |name| {
+                                self.assertArgsExhausted(parser) catch return null;
+
+                                self.usageFor(name);
+                            } else {
+                                self.help();
+                            }
+                        },
                     }
 
                     return null;
@@ -235,14 +269,7 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                 // something went wrong while parsing
                 parser.reset();
                 const name = parser.next().?;
-
-                const I = @typeInfo(UserCommand);
-                inline for (I.@"union".fields) |field| {
-                    if (std.mem.eql(u8, field.name, name)) {
-                        self.usage(@unionInit(UserCommand, field.name, undefined));
-                    }
-                }
-
+                self.usageFor(name);
                 return null;
             };
         }
@@ -259,10 +286,10 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                 inline else => |command| {
                     const Cmd = @TypeOf(command);
 
-                    if (!@hasDecl(Cmd, "allow_extra_args") or !Cmd.allow_extra_args){
+                    if (!@hasDecl(Cmd, "allow_extra_args") or !Cmd.allow_extra_args) {
                         try self.assertArgsExhausted(&parser);
                     }
-                }
+                },
             }
 
             return user_command.handle(&parser);
