@@ -8,23 +8,31 @@ pub const Keys = @import("Keys.zig");
 pub const Parser = @import("Parser.zig");
 
 const BuiltinCommand = enum {
+    @"!",
     clear,
     help,
+    history,
     exit,
 };
 
-fn validate(T: type) void {
+fn validate(T: type, options: ShellOptions) void {
     const I = @typeInfo(T);
 
     if (I != .@"union") {
         const msg = "Commands must be represented with a `union(enum)`";
         @compileError(msg);
     }
+
+    if (options.max_line_size == 0 or options.max_history_size == 0) {
+        const msg = "Buffers can't be 0-sized";
+        @compileError(msg);
+    }
 }
 
 pub const ShellOptions = struct {
-    buffer_size: usize = 200,
     prompt: []const u8 = "$ ",
+    max_line_size: usize = 200,
+    max_history_size: usize = 10,
 };
 
 /// A shell's type is defined by a `union(enum)` of different commands and some optional arguments.
@@ -39,14 +47,15 @@ pub const ShellOptions = struct {
 ///
 /// See `examples/echo.zig` for a small demo.
 pub fn Shell(UserCommand: type, options: ShellOptions) type {
-    validate(UserCommand);
+    validate(UserCommand, options);
 
     return struct {
         const Self = @This();
 
         reader: std.io.AnyReader,
         writer: std.io.AnyWriter,
-        buffer: std.BoundedArray(u8, options.buffer_size),
+        buffer: std.BoundedArray(u8, options.max_line_size),
+        history: std.BoundedArray([options.max_line_size]u8, options.max_history_size),
 
         stop_running: bool,
 
@@ -57,7 +66,8 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
             return Self{
                 .reader = reader,
                 .writer = writer,
-                .buffer = undefined,
+                .buffer = .{},
+                .history = .{},
                 .stop_running = false,
             };
         }
@@ -69,6 +79,21 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
             };
         }
 
+        fn appendHistory(self: *Self, line: []const u8) void {
+            // if filled, remove an item
+            if (self.history.len == self.history.capacity()) {
+                _ = self.history.orderedRemove(0);
+            }
+
+            // should never fail, we check the size (and free a slot) above
+            const ptr = self.history.addOne() catch unreachable;
+
+            // "append" by copying the buffer (rather than storing a pointer to a temporary slice)
+            for (0.., line) |i, byte| {
+                ptr[i] = byte;
+            }
+        }
+
         pub fn readline(self: *Self) ![]const u8 {
             self.buffer.clear();
 
@@ -76,10 +101,8 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                 const byte = try self.readByte() orelse continue;
 
                 switch (byte) {
-                    Keys.Newline => {
-                        // input ready, return it to be handled
-                        return self.buffer.constSlice();
-                    },
+                    // input ready, stop reading
+                    Keys.Newline => break,
                     Keys.Tab => {},
                     Keys.Backspace => {
                         // backspace deletes previous char (if any)
@@ -90,6 +113,8 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                     },
                 }
             }
+
+            return self.buffer.constSlice();
         }
 
         pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) void {
@@ -229,13 +254,51 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
             };
 
             switch (builtin_command) {
-                .help => {},
                 .clear,
                 .exit,
+                .history,
                 => try self.assertArgsExhausted(parser),
+
+                .@"!",
+                .help,
+                => {},
             }
 
             return builtin_command;
+        }
+
+        // NOTE: doesn't return an eror because this function and handle() call each other
+        // thus, zig is unable to infer error type
+        fn handleBuiltin(self: *Self, command: BuiltinCommand, parser: *Parser) ?void {
+            switch (command) {
+                .@"!" => {
+                    const i = parser.required(usize) catch return null;
+
+                    // remove "! <n>" from history
+                    // the command being referenced will be put in history (which makes more sense)
+                    _ = self.history.pop();
+
+                    const line: []const u8 = &self.history.get(i);
+                    self.handle(line) catch return null;
+                },
+                .clear => self.print("{s}", .{Escape.Clear}),
+                .exit => self.stop_running = true,
+                .help => {
+                    if (parser.next()) |name| {
+                        self.assertArgsExhausted(parser) catch return null;
+
+                        self.usageFor(name);
+                    } else {
+                        self.help();
+                    }
+                },
+                .history => {
+                    for (0.., self.history.buffer[0 .. self.history.len - 1]) |i, line| {
+                        self.print("{}: {s}\n", .{ i, line });
+                    }
+                    self.print("{}: {s}\n", .{ self.history.len - 1, self.history.buffer[self.history.len - 1] });
+                }
+            }
         }
 
         fn getUserCommand(self: *Self, parser: *Parser) !?UserCommand {
@@ -248,21 +311,7 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                 // name did not exist in UserCommand, try and find into BuiltinCommand
                 if (parser.successful_parses == 0 and err == error.InvalidArg) {
                     const builtin_command = try self.getBuiltinCommand(parser);
-
-                    switch (builtin_command) {
-                        .clear => self.print("{s}", .{Escape.Clear}),
-                        .exit => self.stop_running = true,
-                        .help => {
-                            if (parser.next()) |name| {
-                                self.assertArgsExhausted(parser) catch return null;
-
-                                self.usageFor(name);
-                            } else {
-                                self.help();
-                            }
-                        },
-                    }
-
+                    self.handleBuiltin(builtin_command, parser) orelse return error.BuiltinError;
                     return null;
                 }
 
@@ -277,6 +326,12 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
         pub fn handle(self: *Self, line: []const u8) !void {
             var parser = Parser.new(line);
 
+            // only append to history if there has been *some* input
+            if (parser.next()) |_| {
+                self.appendHistory(line);
+            }
+
+            parser.reset();
             var user_command = try self.getUserCommand(&parser) orelse return;
 
             // if anything goes wrong after this point, show usage

@@ -14,7 +14,7 @@ const ArgError = error{
 };
 
 /// "whitespace" chars to split at (delimit words) when parsing
-const delimiters = " \r\n\t";
+const delimiters = " \r\n\t\u{0}";
 
 const BoolLiteral = struct {
     value: bool,
