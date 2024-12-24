@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const ushell = b.addModule("ushell", .{
-        .root_source_file = b.path("src/mod.zig"),
+        .root_source_file = b.path("src/ushell.zig"),
     });
 
     // Test suite
@@ -25,11 +25,11 @@ pub fn build(b: *std.Build) void {
     });
     echo_exe.root_module.addImport("ushell", ushell);
 
-    const run_echo_step = b.step("run echo", "Run echo example");
+    const run_echo_step = b.step("run", "Run echo example");
     const run_echo = b.addRunArtifact(echo_exe);
     run_echo_step.dependOn(&run_echo.step);
 
-    const build_echo_step = b.step("build echo", "Build echo example");
+    const build_echo_step = b.step("build", "Build echo example");
     const build_echo = b.addInstallArtifact(echo_exe, .{});
     build_echo_step.dependOn(&build_echo.step);
 }

@@ -116,13 +116,18 @@ pub fn required(self: *Self, T: type) ArgError!T {
     return val;
 }
 
-/// Confirm that is nothing left to parse
 pub fn tokensLeft(self: *Self) bool {
     const copy = self.iterator;
     defer self.iterator = copy;
 
     const token = self.next();
     return token != null;
+}
+
+pub fn assertExhausted(self: *Self) !void {
+    if (self.tokensLeft()) {
+        return error.TooManyArgs;
+    }
 }
 
 fn parseBool(self: *Self) !?bool {
