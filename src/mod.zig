@@ -293,11 +293,16 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                     }
                 },
                 .history => {
-                    for (0.., self.history.buffer[0 .. self.history.len - 1]) |i, line| {
+                    const n = self.history.len - 1;
+
+                    for (0..n) |i| {
+                        const line = self.history.get(i);
                         self.print("{}: {s}\n", .{ i, line });
                     }
-                    self.print("{}: {s}\n", .{ self.history.len - 1, self.history.buffer[self.history.len - 1] });
-                }
+
+                    const line = self.history.get(n);
+                    self.print("{}: {s}", .{ n, line });
+                },
             }
         }
 
