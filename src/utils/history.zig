@@ -54,10 +54,11 @@ pub fn History(options: ushell.Options) type {
             entry.copy(line);
         }
 
-        pub fn getLine(self: *Self, i: usize) []const u8 {
-            // not using .get() or similar API's because those would make a copy
-            // as such, the returned slice would be a dangling pointer :)
-            const entry = &self.entries.buffer[i];
+        // since .get() returns a copy of the value (temporary, on stack),
+        // instead of a reference to it, we *must* inline this function so that
+        // the slice being returned is not a dangling pointer
+        pub inline fn getLine(self: *Self, i: usize) []const u8 {
+            const entry = self.entries.get(i);
             return entry.line[0..entry.len];
         }
     };
