@@ -278,6 +278,9 @@ pub fn Shell(UserCommand: type, options: ShellOptions) type {
                     // the command being referenced will be put in history (which makes more sense)
                     _ = self.history.pop();
 
+                    // cant access elements past the current size
+                    if (i >= self.history.len) return null;
+
                     const line: []const u8 = &self.history.get(i);
                     self.handle(line) catch return null;
                 },
