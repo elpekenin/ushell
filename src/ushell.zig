@@ -118,7 +118,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
                 },
             }
 
-            return command.handle(parser);
+            return command.handle(self, parser);
         }
 
         pub fn handle(self: *Self, line: []const u8) !void {
