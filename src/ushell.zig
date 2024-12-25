@@ -2,11 +2,13 @@
 
 const std = @import("std");
 
-const utils = @import("utils.zig");
+const find = @import("find.zig");
+const help = @import("help.zig");
+const history = @import("history.zig");
 
 pub const Escape = @import("Escape.zig");
-pub const Keys = @import("Keys.zig");
 pub const Parser = @import("Parser.zig");
+pub const Tokenizer = @import("Tokenizer.zig");
 
 fn validate(T: type, options: Options) void {
     const I = @typeInfo(T);
@@ -42,14 +44,14 @@ pub const Options = struct {
 pub fn Shell(UserCommand: type, options: Options) type {
     validate(UserCommand, options);
 
-    const History = utils.History(options);
+    const History = history.History(options);
 
     return struct {
         const Self = @This();
 
-        pub const Help = utils.Help(UserCommand, options);
+        pub const Help = help.Help(UserCommand, options);
 
-        reader: std.io.AnyReader,
+        reader: Tokenizer,
         writer: std.io.AnyWriter,
         buffer: std.BoundedArray(u8, options.max_line_size),
         history: History,
@@ -61,7 +63,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
             writer: std.io.AnyWriter,
         ) Self {
             return Self{
-                .reader = reader,
+                .reader = Tokenizer.new(reader),
                 .writer = writer,
                 .buffer = .{},
                 .history = History.new(),
@@ -69,28 +71,20 @@ pub fn Shell(UserCommand: type, options: Options) type {
             };
         }
 
-        fn readByte(self: *Self) !?u8 {
-            return self.reader.readByte() catch |err| switch (err) {
-                error.EndOfStream => return null, // nothing was read
-                else => return err,
-            };
-        }
-
         pub fn readline(self: *Self) ![]const u8 {
             self.buffer.clear();
 
             while (true) {
-                const byte = try self.readByte() orelse continue;
+                const token = try self.reader.next();
 
-                switch (byte) {
-                    // input ready, stop reading
-                    Keys.Newline => break,
-                    Keys.Tab => {},
-                    Keys.Backspace => {
-                        // backspace deletes previous char (if any)
-                        _ = self.buffer.popOrNull();
-                    },
-                    else => {
+                switch (token) {
+                    // delete previous char (if any)
+                    .backspace => _ = self.buffer.popOrNull(),
+                    .tab => {}, // TODO
+                    // line ready, stop reading
+                    .newline => break,
+                    .arrow => { }, // TODO
+                    .char => |byte| {
                         self.buffer.append(byte) catch std.debug.panic("Exhausted reception buffer", .{});
                     },
                 }
@@ -138,7 +132,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
                 return;
             }
 
-            var user = utils.finder.user(&parser, UserCommand) catch |err| {
+            var user = find.user(&parser, UserCommand) catch |err| {
                 parser.reset();
                 const name = parser.next().?;
                 Help.of(self, name);
@@ -148,7 +142,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
                 return self.handleUser(command, &parser);
             }
 
-            var builtin = utils.finder.builtin(&parser) catch |err| {
+            var builtin = find.builtin(&parser) catch |err| {
                 parser.reset();
                 const name = parser.next().?;
                 self.unknown(name);

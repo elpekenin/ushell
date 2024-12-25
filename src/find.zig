@@ -1,9 +1,9 @@
 //! Find the UserCommand or BuiltinCommand appropiate for the input received
 
-const ushell = @import("../ushell.zig");
+const ushell = @import("ushell.zig");
 
-const utils = @import("../utils.zig");
-const BuiltinCommand = utils.BuiltinCommand;
+const builtins = @import("builtins.zig");
+const BuiltinCommand = builtins.BuiltinCommand;
 
 pub fn builtin(parser: *ushell.Parser) !BuiltinCommand {
     parser.reset();

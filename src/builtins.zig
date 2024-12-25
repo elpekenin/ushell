@@ -1,8 +1,6 @@
-const ushell = @import("../ushell.zig");
+const ushell = @import("ushell.zig");
 const Escape = ushell.Escape;
 const Parser = ushell.Parser;
-
-const utils = @import("../utils.zig");
 
 pub const BuiltinCommand = enum {
     const Self = @This();

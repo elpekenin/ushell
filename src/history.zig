@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const ushell = @import("../ushell.zig");
+const ushell = @import("ushell.zig");
 
 fn Entry(options: ushell.Options) type {
     return struct {

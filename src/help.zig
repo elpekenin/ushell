@@ -3,11 +3,11 @@
 const std = @import("std");
 const Type = std.builtin.Type;
 
-const ushell = @import("../ushell.zig");
+const ushell = @import("ushell.zig");
 const Options = ushell.Options;
 
-const utils = @import("../utils.zig");
-const BuiltinCommand = utils.BuiltinCommand;
+const builtins = @import("builtins.zig");
+const BuiltinCommand = builtins.BuiltinCommand;
 
 pub fn Help(UserCommand: type, options: Options) type {
     const Shell = ushell.Shell(UserCommand, options);
