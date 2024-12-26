@@ -10,7 +10,7 @@ const Commands = union(enum) {
         pub const allow_extra_args = true;
         pub const usage = "usage: echo ...args";
 
-        pub fn handle(_: *const @This(), shell: *Shell, parser: *ushell.Parser) !void {
+        pub fn handle(_: *const @This(), shell: *Shell, parser: *ushell.Parser) void {
             while (parser.next()) |val| {
                 shell.print("{s} ", .{val});
             }
@@ -21,16 +21,10 @@ const Commands = union(enum) {
         foo: u8,
         bar: bool,
 
-        pub fn handle(self: *const @This(), shell: *Shell, _: *ushell.Parser) !void {
+        pub fn handle(self: *const @This(), shell: *Shell, _: *ushell.Parser) void {
             shell.print("Received: {d} {}", .{ self.foo, self.bar });
         }
     },
-
-    pub fn handle(self: *Commands, shell: *Shell, parser: *ushell.Parser) !void {
-        return switch (self.*) {
-            inline else => |child| child.handle(shell, parser),
-        };
-    }
 };
 
 const Shell = ushell.Shell(Commands, .{});

@@ -8,9 +8,10 @@ const Iterator = std.mem.SplitIterator(u8, .any);
 
 const Self = @This();
 
-const ArgError = error{
+pub const ArgError = error{
     MissingArg,
     InvalidArg,
+    TooManyArgs,
 };
 
 /// "whitespace" chars to split at (delimit words) when parsing
@@ -124,13 +125,13 @@ pub fn tokensLeft(self: *Self) bool {
     return token != null;
 }
 
-pub fn assertExhausted(self: *Self) !void {
+pub fn assertExhausted(self: *Self) ArgError!void {
     if (self.tokensLeft()) {
         return error.TooManyArgs;
     }
 }
 
-fn parseBool(self: *Self) !?bool {
+fn parseBool(self: *Self) ArgError!?bool {
     const token = self.next() orelse return null;
 
     if (token.len > max_bool_arg_len) return error.InvalidArg;
@@ -149,7 +150,7 @@ fn parseBool(self: *Self) !?bool {
     return error.InvalidArg;
 }
 
-fn parseEnum(self: *Self, T: type) !?T {
+fn parseEnum(self: *Self, T: type) ArgError!?T {
     const token = self.next() orelse return null;
 
     const I = @typeInfo(T);
@@ -164,17 +165,17 @@ fn parseEnum(self: *Self, T: type) !?T {
     return error.InvalidArg;
 }
 
-fn parseFloat(self: *Self, T: type) !?T {
+fn parseFloat(self: *Self, T: type) ArgError!?T {
     const token = self.next() orelse return null;
     return std.fmt.parseFloat(T, token) catch return error.InvalidArg;
 }
 
-fn parseInt(self: *Self, T: type) !?T {
+fn parseInt(self: *Self, T: type) ArgError!?T {
     const token = self.next() orelse return null;
     return std.fmt.parseInt(T, token, 0) catch return error.InvalidArg;
 }
 
-fn parseStruct(self: *Self, T: type) !?T {
+fn parseStruct(self: *Self, T: type) ArgError!?T {
     const I = @typeInfo(T);
 
     var val: T = undefined;
@@ -191,7 +192,7 @@ fn parseStruct(self: *Self, T: type) !?T {
     return val;
 }
 
-fn parseUnion(self: *Self, T: type) !?T {
+fn parseUnion(self: *Self, T: type) ArgError!?T {
     const token = self.next() orelse return null;
 
     const I = @typeInfo(T);

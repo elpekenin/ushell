@@ -2,6 +2,8 @@
 
 const std = @import("std");
 
+const builtins = @import("builtins.zig");
+const BuiltinCommand = builtins.BuiltinCommand;
 const find = @import("find.zig");
 const help = @import("help.zig");
 const history = @import("history.zig");
@@ -106,7 +108,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
         }
 
         fn handleUser(self: *Self, command: *UserCommand, parser: *Parser) !void {
-            errdefer Help.of(self, @tagName(command.*));
+            errdefer Help.usage(self, @tagName(command.*));
 
             switch (command.*) {
                 inline else => |cmd| {
@@ -118,10 +120,17 @@ pub fn Shell(UserCommand: type, options: Options) type {
                 },
             }
 
+            return switch (command.*) {
+                inline else => |cmd| cmd.handle(self, parser),
+            };
+        }
+
+        fn handleBuiltin(self: *Self, command: *BuiltinCommand, parser: *Parser) !void {
+            errdefer self.print("{s}", .{command.usage()});
             return command.handle(self, parser);
         }
 
-        pub fn handle(self: *Self, line: []const u8) !void {
+        pub fn handle(self: *Self, line: []const u8) Parser.ArgError!void {
             var parser = Parser.new(line);
 
             // only append to history if there has been *some* input
@@ -135,7 +144,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
             var user = find.user(&parser, UserCommand) catch |err| {
                 parser.reset();
                 const name = parser.next().?;
-                Help.of(self, name);
+                Help.usage(self, name);
                 return err;
             };
             if (user) |*command| {
@@ -148,7 +157,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
                 self.unknown(name);
                 return err;
             };
-            return builtin.handle(self, &parser);
+            return self.handleBuiltin(&builtin, &parser);
         }
     };
 }

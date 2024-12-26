@@ -39,7 +39,7 @@ pub fn Help(UserCommand: type, options: Options) type {
         fn structUsage(shell: *Shell, s: Type.Struct) void {
             inline for (s.fields) |field| {
                 shell.print("{s}(", .{field.name});
-                usage(shell, field.type);
+                usageType(shell, field.type);
                 shell.print(")", .{});
                 defaultValue(shell, field);
                 shell.print(" ", .{});
@@ -52,15 +52,15 @@ pub fn Help(UserCommand: type, options: Options) type {
             shell.print("{{", .{});
             inline for (fields[0 .. fields.len - 1]) |field| {
                 shell.print("{s}(", .{field.name});
-                usage(shell, field.type);
+                usageType(shell, field.type);
                 shell.print("),");
             }
             shell.print("{s}(", .{fields[fields.len - 1].name});
-            usage(shell, fields[fields.len - 1].type);
+            usageType(shell, fields[fields.len - 1].type);
             shell.print(")}}", .{});
         }
 
-        fn usage(shell: *Shell, T: type) void {
+        fn usageType(shell: *Shell, T: type) void {
             const I = @typeInfo(T);
 
             switch (I) {
@@ -84,16 +84,36 @@ pub fn Help(UserCommand: type, options: Options) type {
             } else {
                 // default implementation: introspection of arguments
                 shell.print("usage: {s} ", .{name});
-                usage(shell, Inner);
+                usageType(shell, Inner);
+
+                if (@hasDecl(Inner, "description")) {
+                    shell.print("-- {s}", .{Inner.description});
+                }
             }
         }
 
-        pub fn of(shell: *Shell, name: []const u8) void {
-            const I = @typeInfo(UserCommand);
+        pub fn usage(shell: *Shell, name: []const u8) void {
+            // NOTE: Not using a Parser here so that we can identify commands from partial input
+            //
+            // This is, if we have a `foo: struct { n: u32 }` command and we receive an input of "foo",
+            // we can't fully parse the type (`n` is missing), but we can identify the type that
+            // it uses internally (the anonymous struct with a u32 field), and show the usage
+            // based on this knowledge
 
-            inline for (I.@"union".fields) |field| {
+            const U = @typeInfo(UserCommand);
+            const B = @typeInfo(BuiltinCommand);
+
+            inline for (U.@"union".fields) |field| {
                 if (std.mem.eql(u8, field.name, name)) {
                     command(shell, field.name, field.type);
+                    return;
+                }
+            }
+
+            inline for (B.@"enum".fields) |field| {
+                if (std.mem.eql(u8, field.name, name)) {
+                    const builtin: BuiltinCommand = @enumFromInt(field.value);
+                    shell.print("{s}", .{ builtin.usage() });
                     return;
                 }
             }

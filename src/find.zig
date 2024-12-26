@@ -7,21 +7,7 @@ const BuiltinCommand = builtins.BuiltinCommand;
 
 pub fn builtin(parser: *ushell.Parser) !BuiltinCommand {
     parser.reset();
-
-    const builtin_command = try parser.required(BuiltinCommand);
-
-    switch (builtin_command) {
-        .clear,
-        .exit,
-        .history,
-        => try parser.assertExhausted(),
-
-        .@"!",
-        .help,
-        => {},
-    }
-
-    return builtin_command;
+    return parser.required(BuiltinCommand);
 }
 
 pub fn user(parser: *ushell.Parser, UserCommand: type) !?UserCommand {

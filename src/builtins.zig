@@ -11,15 +11,13 @@ pub const BuiltinCommand = enum {
     history,
     exit,
 
-    /// Shell.handle and BuiltinCommand.handle can call each other, retuning error
-    /// here would confuse zig's logic to infer error type.
-    /// 
-    /// shell is of type ushell.Shell(UserCommand, options) but it is marked as anytype
-    /// because we dont want to pollute BuiltinCommand with user-level configuration
-    pub fn handle(self: *Self, shell: anytype, parser: *Parser) void {
+    // NOTE: shell is always of type `ushell.Shell(UserCommand, options)`. however it is marked as anytype
+    // because we dont want to pollute `BuiltinCommand` with user-level configuration
+    pub fn handle(self: *Self, shell: anytype, parser: *Parser) Parser.ArgError!void {
         switch (self.*) {
             .@"!" => {
-                const i = parser.required(usize) catch return;
+                const i = try parser.required(usize);
+                try parser.assertExhausted();
 
                 // remove "! <n>" from history
                 // the command being referenced will be put in history (which makes more sense)
@@ -29,21 +27,29 @@ pub const BuiltinCommand = enum {
                 if (i >= shell.history.len()) return;
 
                 const line = shell.history.getLine(i);
-                shell.handle(line) catch return;
+                try shell.handle(line);
             },
-            .clear => shell.print("{s}", .{Escape.Clear}),
-            .exit => shell.stop_running = true,
+            .clear => {
+                try parser.assertExhausted();
+                shell.print("{s}", .{Escape.Clear});
+            },
+            .exit => {
+                try parser.assertExhausted();
+                shell.stop_running = true;
+            },
             .help => {
                 const Shell = @TypeOf(shell.*);
 
                 if (parser.next()) |name| {
-                    parser.assertExhausted() catch return;
-                    Shell.Help.of(shell, name);
+                    try parser.assertExhausted();
+                    Shell.Help.usage(shell, name);
                 } else {
                     Shell.Help.list(shell);
                 }
             },
             .history => {
+                try parser.assertExhausted();
+
                 const n = shell.history.len() - 1;
 
                 for (0..n) |i| {
@@ -55,5 +61,19 @@ pub const BuiltinCommand = enum {
                 shell.print("{}: {s}", .{ n, line });
             },
         }
+    }
+
+    pub fn usage(self: *const Self) []const u8 {
+        return switch (self.*) {
+            .@"!" => "usage: `! <n>` -- re-run n'th command in history",
+            .clear => "usage: `clear` -- wipe the screen",
+            .help =>
+                \\usage:
+                \\  `help` -- list available commands
+                \\  `help <command>` -- show usage of a specific command
+                ,
+            .history => "usage: `history` -- list last commands used",
+            .exit => "usage: `exit` -- quits shell session"
+        };
     }
 };
