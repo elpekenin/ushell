@@ -15,13 +15,23 @@ pub fn Help(UserCommand: type, options: Options) type {
     return struct {
         fn defaultValue(shell: *Shell, field: Type.StructField) void {
             if (field.default_value) |def| {
-                const ptr: *align(field.alignment) const field.type = @alignCast(@ptrCast(def));
+                shell.print("=", .{});
+
+                const T = field.type;
+
+                const ptr: *align(field.alignment) const T = @alignCast(@ptrCast(def));
+                const val = ptr.*;
 
                 const I = @typeInfo(field.type);
-                switch (I) {
-                    // eg: show "=foo" instead of "=main.EnumName.foo" (not even valid input for parser)
-                    .@"enum" => shell.print("={s}", .{@tagName(ptr.*)}),
-                    else => shell.print("={}", .{ptr.*}),
+                switch (T) {
+                    []const u8 => shell.print("{s}", .{val}),
+                    ?[]const u8 => shell.print("{?s}", .{val}),
+                    else => switch (I) {
+                        // eg: show "=foo" instead of "=main.EnumName.foo" (not even valid input for parser)
+                        .@"enum" => shell.print("{s}", .{@tagName(val)}),
+                        .optional => shell.print("{?}", .{val}),
+                        else => shell.print("{}", .{val}),
+                    },
                 }
             }
         }
@@ -63,17 +73,29 @@ pub fn Help(UserCommand: type, options: Options) type {
         fn usageType(shell: *Shell, T: type) void {
             const I = @typeInfo(T);
 
-            switch (I) {
-                .bool, // TODO: Show string literals that cast to bool (?)
-                .int,
-                .float,
-                => shell.print("{s}", .{@typeName(T)}),
-                .@"enum" => |e| enumUsage(shell, e),
-                .@"struct" => |s| structUsage(shell, s),
-                .@"union" => |u| unionUsage(shell, u),
-                else => {
-                    const msg = "Showing usage for arguments of type '" ++ @typeName(T) ++ "' not supported at the moment.";
-                    @compileError(msg);
+            switch (T) {
+                // TODO?: show string literals that cast to bool values
+                bool => shell.print("bool", .{}),
+
+                []const u8,
+                [:0]const u8,
+                => shell.print("string", .{}),
+
+                ?[]const u8,
+                ?[:0]const u8,
+                => shell.print("optional string", .{}),
+
+                else => switch (I) {
+                    .int,
+                    .float,
+                    => shell.print("{s}", .{@typeName(T)}),
+                    .@"enum" => |e| enumUsage(shell, e),
+                    .@"struct" => |s| structUsage(shell, s),
+                    .@"union" => |u| unionUsage(shell, u),
+                    else => {
+                        const msg = "Showing usage for arguments of type '" ++ @typeName(T) ++ "' not supported at the moment.";
+                        @compileError(msg);
+                    },
                 },
             }
         }

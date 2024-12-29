@@ -2,6 +2,10 @@ const ushell = @import("ushell.zig");
 const Escape = ushell.Escape;
 const Parser = ushell.Parser;
 
+// TODO: $? for prev command's output (?)
+
+const Error = Parser.ArgError || error{ UserCommandError };
+
 pub const BuiltinCommand = enum {
     const Self = @This();
 
@@ -13,7 +17,7 @@ pub const BuiltinCommand = enum {
 
     // NOTE: shell is always of type `ushell.Shell(UserCommand, options)`. however it is marked as anytype
     // because we dont want to pollute `BuiltinCommand` with user-level configuration
-    pub fn handle(self: *Self, shell: anytype, parser: *Parser) Parser.ArgError!void {
+    pub fn handle(self: *Self, shell: anytype, parser: *Parser) Error!void {
         switch (self.*) {
             .@"!" => {
                 const i = try parser.required(usize);
@@ -27,7 +31,7 @@ pub const BuiltinCommand = enum {
                 if (i >= shell.history.len()) return;
 
                 const line = shell.history.getLine(i);
-                try shell.handle(line);
+                return shell.handle(line) catch return error.UserCommandError;
             },
             .clear => {
                 try parser.assertExhausted();

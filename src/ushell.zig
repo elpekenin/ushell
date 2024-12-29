@@ -53,8 +53,10 @@ pub fn Shell(UserCommand: type, options: Options) type {
 
         pub const Help = help.Help(UserCommand, options);
 
-        reader: Tokenizer,
+        input: Tokenizer,
         writer: std.io.AnyWriter,
+
+        parser: Parser,
         buffer: std.BoundedArray(u8, options.max_line_size),
         history: History,
 
@@ -65,8 +67,9 @@ pub fn Shell(UserCommand: type, options: Options) type {
             writer: std.io.AnyWriter,
         ) Self {
             return Self{
-                .reader = Tokenizer.new(reader),
+                .input = Tokenizer.new(reader),
                 .writer = writer,
+                .parser = undefined,
                 .buffer = .{},
                 .history = History.new(),
                 .stop_running = false,
@@ -77,7 +80,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
             self.buffer.clear();
 
             while (true) {
-                const token = try self.reader.next();
+                const token = try self.input.next();
 
                 switch (token) {
                     // delete previous char (if any)
@@ -107,7 +110,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
             self.print("unknown command: {s}", .{name});
         }
 
-        fn handleUser(self: *Self, command: *UserCommand, parser: *Parser) !void {
+        fn handleUser(self: *Self, command: *UserCommand) !void {
             errdefer Help.usage(self, @tagName(command.*));
 
             switch (command.*) {
@@ -115,49 +118,57 @@ pub fn Shell(UserCommand: type, options: Options) type {
                     const Cmd = @TypeOf(cmd);
 
                     if (!@hasDecl(Cmd, "allow_extra_args") or !Cmd.allow_extra_args) {
-                        try parser.assertExhausted();
+                        try self.parser.assertExhausted();
                     }
                 },
             }
 
             return switch (command.*) {
-                inline else => |cmd| cmd.handle(self, parser),
+                inline else => |cmd| cmd.handle(self),
             };
         }
 
-        fn handleBuiltin(self: *Self, command: *BuiltinCommand, parser: *Parser) !void {
+        fn handleBuiltin(self: *Self, command: *BuiltinCommand) !void {
             errdefer self.print("{s}", .{command.usage()});
-            return command.handle(self, parser);
+            return command.handle(self, &self.parser);
         }
 
-        pub fn handle(self: *Self, line: []const u8) Parser.ArgError!void {
-            var parser = Parser.new(line);
+        pub fn handle(self: *Self, line: []const u8) !void {
+            self.parser = Parser.new(line);
 
             // only append to history if there has been *some* input
-            if (parser.tokensLeft()) {
+            if (self.parser.tokensLeft()) {
                 self.history.append(line);
-                parser.reset();
+                self.parser.reset();
             } else {
                 return;
             }
 
-            var user = find.user(&parser, UserCommand) catch |err| {
-                parser.reset();
-                const name = parser.next().?;
+            var user = find.user(&self.parser, UserCommand) catch |err| {
+                self.parser.reset();
+                const name = self.parser.next().?;
                 Help.usage(self, name);
                 return err;
             };
             if (user) |*command| {
-                return self.handleUser(command, &parser);
+                return self.handleUser(command);
             }
 
-            var builtin = find.builtin(&parser) catch |err| {
-                parser.reset();
-                const name = parser.next().?;
+            var builtin = find.builtin(&self.parser) catch |err| {
+                self.parser.reset();
+                const name = self.parser.next().?;
                 self.unknown(name);
                 return err;
             };
-            return self.handleBuiltin(&builtin, &parser);
+            return self.handleBuiltin(&builtin);
+        }
+
+        pub fn run(self: *Self) void {
+            while (!self.stop_running) {
+                self.showPrompt();
+                const line = self.readline() catch continue;
+                self.handle(line) catch continue;
+            }
         }
     };
 }

@@ -89,18 +89,23 @@ pub fn next(self: *Self) ?[]const u8 {
 pub fn optional(self: *Self, T: type) ArgError!?T {
     const I = @typeInfo(T);
 
-    return switch (I) {
-        .bool => self.parseBool(),
-        .@"enum" => self.parseEnum(T),
-        .float => self.parseFloat(T),
-        .int => self.parseInt(T),
-        .@"struct" => self.parseStruct(T),
-        .@"union" => self.parseUnion(T),
-        else => {
-            const msg = "Parsing arguments of type '" ++ @typeName(T) ++ "' not supported at the moment.";
-            @compileError(msg);
-        },
-    } catch error.InvalidArg;
+    return switch (T) {
+        // special case for strings
+        []const u8 => self.next(),
+        else => switch (I) {
+            .bool => self.parseBool(),
+            .@"enum" => self.parseEnum(T),
+            .float => self.parseFloat(T),
+            .int => self.parseInt(T),
+            .optional => |o| self.optional(o.child),
+            .@"struct" => self.parseStruct(T),
+            .@"union" => self.parseUnion(T),
+            else => {
+                const msg = "Parsing arguments of type '" ++ @typeName(T) ++ "' not supported at the moment.";
+                @compileError(msg);
+            },
+        } catch error.InvalidArg, // cast any type of parsing error to InvalidArg
+    };
 }
 
 /// Parse next token as T, or default value if iterator exhausted
