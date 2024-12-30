@@ -2,14 +2,13 @@ const ushell = @import("ushell.zig");
 const Escape = ushell.Escape;
 const Parser = ushell.Parser;
 
-// TODO: $? for prev command's output (?)
-
-const Error = Parser.ArgError || error{ UserCommandError };
+const Error = Parser.ArgError || error{UserCommandError};
 
 pub const BuiltinCommand = enum {
     const Self = @This();
 
     @"!",
+    @"$?",
     clear,
     help,
     history,
@@ -32,6 +31,13 @@ pub const BuiltinCommand = enum {
 
                 const line = shell.history.getLine(i);
                 return shell.handle(line) catch return error.UserCommandError;
+            },
+            .@"$?" => {
+                // print (instead of return) the exitcode
+                switch (shell.last_output) {
+                    .ok => shell.print("0", .{}),
+                    .err => |e| shell.print("1 ({})", .{e}),
+                }
             },
             .clear => {
                 try parser.assertExhausted();
@@ -70,14 +76,15 @@ pub const BuiltinCommand = enum {
     pub fn usage(self: *const Self) []const u8 {
         return switch (self.*) {
             .@"!" => "usage: `! <n>` -- re-run n'th command in history",
+            .@"$?" => "usage: `$?` -- show last command's status",
             .clear => "usage: `clear` -- wipe the screen",
             .help =>
-                \\usage:
-                \\  `help` -- list available commands
-                \\  `help <command>` -- show usage of a specific command
-                ,
+            \\usage:
+            \\  `help` -- list available commands
+            \\  `help <command>` -- show usage of a specific command
+            ,
             .history => "usage: `history` -- list last commands used",
-            .exit => "usage: `exit` -- quits shell session"
+            .exit => "usage: `exit` -- quits shell session",
         };
     }
 };

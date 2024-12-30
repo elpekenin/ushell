@@ -10,7 +10,12 @@ const history = @import("history.zig");
 
 pub const Escape = @import("Escape.zig");
 pub const Parser = @import("Parser.zig");
-pub const Tokenizer = @import("Tokenizer.zig");
+pub const Reader = @import("Reader.zig");
+
+const Output = union(enum) {
+    ok,
+    err: anyerror,
+};
 
 fn validate(T: type, options: Options) void {
     const I = @typeInfo(T);
@@ -53,7 +58,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
 
         pub const Help = help.Help(UserCommand, options);
 
-        input: Tokenizer,
+        input: Reader,
         writer: std.io.AnyWriter,
 
         parser: Parser,
@@ -61,18 +66,20 @@ pub fn Shell(UserCommand: type, options: Options) type {
         history: History,
 
         stop_running: bool,
+        last_output: Output,
 
         pub fn new(
             reader: std.io.AnyReader,
             writer: std.io.AnyWriter,
         ) Self {
             return Self{
-                .input = Tokenizer.new(reader),
+                .input = Reader.new(reader),
                 .writer = writer,
                 .parser = undefined,
                 .buffer = .{},
                 .history = History.new(),
                 .stop_running = false,
+                .last_output = .ok,
             };
         }
 
@@ -88,7 +95,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
                     .tab => {}, // TODO
                     // line ready, stop reading
                     .newline => break,
-                    .arrow => { }, // TODO
+                    .arrow => {}, // TODO
                     .char => |byte| {
                         self.buffer.append(byte) catch std.debug.panic("Exhausted reception buffer", .{});
                     },
@@ -133,7 +140,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
             return command.handle(self, &self.parser);
         }
 
-        pub fn handle(self: *Self, line: []const u8) !void {
+        fn handleImpl(self: *Self, line: []const u8) !void {
             self.parser = Parser.new(line);
 
             // only append to history if there has been *some* input
@@ -161,6 +168,15 @@ pub fn Shell(UserCommand: type, options: Options) type {
                 return err;
             };
             return self.handleBuiltin(&builtin);
+        }
+
+        pub fn handle(self: *Self, line: []const u8) !void {
+            self.handleImpl(line) catch |err| {
+                self.last_output = .{ .err = err };
+                return err;
+            };
+
+            self.last_output = .ok;
         }
 
         pub fn run(self: *Self) void {

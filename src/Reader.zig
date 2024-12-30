@@ -18,24 +18,24 @@ pub const Token = union(enum) {
 };
 
 // Aliases for convenience
-const Backspace = Token{.backspace = {}};
-const Tab = Token{.tab = {}};
-const Newline = Token{.newline = {}};
-const Up = Token{.arrow = .up};
-const Down = Token{.arrow = .down};
-const Left = Token{.arrow = .left};
-const Right = Token{.arrow = .right};
+const Backspace: Token = .backspace;
+const Tab: Token = .tab;
+const Newline: Token = .newline;
+const Up: Token = .{ .arrow = .up };
+const Down: Token = .{ .arrow = .down };
+const Left: Token = .{ .arrow = .left };
+const Right: Token = .{ .arrow = .right };
 
-reader: std.io.AnyReader,
+inner: std.io.AnyReader,
 
 pub fn new(reader: std.io.AnyReader) Self {
     return Self{
-        .reader = reader,
+        .inner = reader,
     };
 }
 
 fn maybeReadByte(self: *Self) !?u8 {
-    return self.reader.readByte() catch |err| switch (err) {
+    return self.inner.readByte() catch |err| switch (err) {
         error.EndOfStream => return null, // nothing was read
         else => return err,
     };
@@ -69,6 +69,6 @@ pub fn next(self: *Self) !Token {
                 else => return error.UnknownEscapeSequence,
             };
         },
-        else => Token{.char = byte},
+        else => Token{ .char = byte },
     };
 }

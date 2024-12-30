@@ -14,7 +14,7 @@ fn Entry(options: ushell.Options) type {
 
             for (0.., line) |i, char| {
                 self.line[i] = char;
-            } 
+            }
 
             self.len = line.len;
         }

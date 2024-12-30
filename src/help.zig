@@ -76,15 +76,8 @@ pub fn Help(UserCommand: type, options: Options) type {
             switch (T) {
                 // TODO?: show string literals that cast to bool values
                 bool => shell.print("bool", .{}),
-
-                []const u8,
-                [:0]const u8,
-                => shell.print("string", .{}),
-
-                ?[]const u8,
-                ?[:0]const u8,
-                => shell.print("optional string", .{}),
-
+                []const u8 => shell.print("string", .{}),
+                ?[]const u8 => shell.print("optional string", .{}),
                 else => switch (I) {
                     .int,
                     .float,
@@ -135,7 +128,7 @@ pub fn Help(UserCommand: type, options: Options) type {
             inline for (B.@"enum".fields) |field| {
                 if (std.mem.eql(u8, field.name, name)) {
                     const builtin: BuiltinCommand = @enumFromInt(field.value);
-                    shell.print("{s}", .{ builtin.usage() });
+                    shell.print("{s}", .{builtin.usage()});
                     return;
                 }
             }
