@@ -48,13 +48,11 @@ pub const BuiltinCommand = enum {
                 shell.stop_running = true;
             },
             .help => {
-                const Shell = @TypeOf(shell.*);
-
                 if (parser.next()) |name| {
                     try parser.assertExhausted();
-                    Shell.Help.usage(shell, name);
+                    shell.helpFor(name);
                 } else {
-                    Shell.Help.list(shell);
+                    shell.listCommands();
                 }
             },
             .history => {
