@@ -89,8 +89,23 @@ pub fn Shell(UserCommand: type, options: Options) type {
 
                 switch (token) {
                     // delete previous char (if any)
-                    .backspace => _ = self.buffer.popOrNull(),
-                    .tab => {}, // TODO
+                    .backspace => {
+                        // TODO: make this stuff configurable with options as it relies on host-app implementation details
+
+                        // send backspace, to delete previous char
+                        //
+                        // however this might only move cursor on host and not actually remove the glyph from screen (pyOCD behavior).
+                        // to handle that, we also send a whitespace to overwrite it
+                        //
+                        // then, print another backspace to get cursor back to intended place
+                        self.print("{c} {c}", .{ 8, 8 });
+
+                        // nothing on buffer -> user deletes last char of prompt from screen -> write it back
+                        if (self.buffer.popOrNull() == null) {
+                            self.print("{c}", .{options.prompt[options.prompt.len - 1]});
+                        }
+                    },
+                    .tab => self.tab(),
                     // line ready, stop reading
                     .newline => break,
                     .arrow => {}, // TODO
@@ -141,18 +156,15 @@ pub fn Shell(UserCommand: type, options: Options) type {
         fn handleImpl(self: *Self, line: []const u8) !void {
             self.parser = Parser.new(line);
 
-            // only append to history if there has been *some* input
-            if (self.parser.tokensLeft()) {
-                self.history.append(line);
-                self.parser.reset();
-            } else {
+            // nothing to do if user simply pressed enter
+            if (!self.parser.tokensLeft()) {
                 return;
             }
 
+            self.history.append(line);
+
             var user = find.user(&self.parser, UserCommand) catch |err| {
-                self.parser.reset();
-                const name = self.parser.next().?;
-                self.helpFor(name);
+                self.helpFor(self.parser.first().?);
                 return err;
             };
             if (user) |*command| {
@@ -160,9 +172,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
             }
 
             var builtin = find.builtin(&self.parser) catch |err| {
-                self.parser.reset();
-                const name = self.parser.next().?;
-                self.unknown(name);
+                self.unknown(self.parser.first().?);
                 return err;
             };
             return self.handleBuiltin(&builtin);
@@ -320,6 +330,26 @@ pub fn Shell(UserCommand: type, options: Options) type {
             inline for (I.@"union".fields) |field| {
                 self.print("\n  * {s}", .{field.name});
             }
+        }
+
+        fn tab(self: *Self) void {
+            const U = @typeInfo(UserCommand);
+
+            self.parser = Parser.new(self.buffer.constSlice());
+            const name = self.parser.next() orelse return;
+
+            // command-specific help
+            inline for (U.@"union".fields) |field| {
+                if (std.mem.eql(u8, field.name, name)) {
+                    if (!@hasDecl(field.type, "tab")) {
+                        return;
+                    }
+
+                    field.type.tab(self) catch {};
+                }
+            }
+
+            // TODO: list commands (if any) matching with input so far
         }
     };
 }

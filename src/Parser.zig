@@ -57,6 +57,15 @@ pub fn new(line: []const u8) Self {
     };
 }
 
+/// Get first token of input (command name)
+pub fn first(self: *Self) ?[]const u8 {
+    const copy = self.*;
+    defer self.* = copy;
+
+    self.reset();
+    return self.next();
+}
+
 /// Back to initial state
 pub fn reset(self: *Self) void {
     self.iterator.reset();

@@ -1,5 +1,7 @@
 //! Tokenize user input
 
+// TODO: Handle some non-printable input (Control+Backspace for example) properly
+
 const std = @import("std");
 
 const Self = @This();
