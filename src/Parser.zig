@@ -79,6 +79,8 @@ pub fn rawLine(self: *const Self) []const u8 {
 
 /// Get next element as is (ie: string)
 pub fn next(self: *Self) ?[]const u8 {
+    const start = self.iterator.index orelse 0;
+
     const raw = self.iterator.next() orelse {
         // iterator exhausted
         return null;
@@ -91,7 +93,27 @@ pub fn next(self: *Self) ?[]const u8 {
         return self.next();
     }
 
-    return raw;
+    const char = raw[0];
+    if (char != '"' and char != '\'') {
+        return raw;
+    }
+
+    // getting here means we got a quoted string
+    // keep consuming input until we get its closing counterpart
+    while (self.next()) |token| {
+        if (token[token.len - 1] == char) {
+            const end = if (self.iterator.index) |index|
+                // -1 because index is where next token starts
+                // another -1 because we want to skip the quote char
+                index - 2
+            else
+                self.iterator.buffer.len - 1;
+            return self.iterator.buffer[start + 1 .. end];
+        }
+    }
+
+    // exhausted input while looking for closing quote => no token to be returned
+    return null;
 }
 
 /// Parse the next token as T, or null if iterator was exhausted
@@ -260,6 +282,24 @@ test "bad input" {
 
     invalid.reset();
     try t.expectError(ArgError.InvalidArg, invalid.required(bool));
+}
+
+test "quoted" {
+    var only_quotes = new("'foo bar'");
+    try t.expectEqualSlices(u8, "foo bar", only_quotes.next().?);
+    try t.expectEqual(null, only_quotes.next());
+
+    var quotes_and_word = new("\"foo bar\" baz");
+    try t.expectEqualSlices(u8, "foo bar", quotes_and_word.next().?);
+    try t.expectEqualSlices(u8, "baz", quotes_and_word.next().?);
+    try t.expectEqual(null, quotes_and_word.next());
+
+    var not_closed = new("'foo bar error");
+    try t.expectEqual(null, not_closed.next());
+
+    var different_delimiters = new("'foo bar\" baz'");
+    try t.expectEqualSlices(u8, "foo bar\" baz", different_delimiters.next().?);
+    try t.expectEqual(null, different_delimiters.next());
 }
 
 // Check that parsing a bool works, not only with "true"/"false" but also with the extra "literals" defined
