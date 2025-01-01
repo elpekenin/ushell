@@ -89,22 +89,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
 
                 switch (token) {
                     // delete previous char (if any)
-                    .backspace => {
-                        // TODO: make this stuff configurable with options as it relies on host-app implementation details
-
-                        // send backspace, to delete previous char
-                        //
-                        // however this might only move cursor on host and not actually remove the glyph from screen (pyOCD behavior).
-                        // to handle that, we also send a whitespace to overwrite it
-                        //
-                        // then, print another backspace to get cursor back to intended place
-                        self.print("{c} {c}", .{ 8, 8 });
-
-                        // nothing on buffer -> user deletes last char of prompt from screen -> write it back
-                        if (self.buffer.popOrNull() == null) {
-                            self.print("{c}", .{options.prompt[options.prompt.len - 1]});
-                        }
-                    },
+                    .backspace => self.popInput(),
                     .tab => self.tab(),
                     // line ready, stop reading
                     .newline => break,
@@ -330,6 +315,32 @@ pub fn Shell(UserCommand: type, options: Options) type {
             inline for (I.@"union".fields) |field| {
                 self.print("\n  * {s}", .{field.name});
             }
+        }
+
+        pub fn popInput(self: *Self) void {
+            // TODO: make this stuff configurable with options as it relies on host-app implementation details
+
+            // send backspace, to delete previous char
+            //
+            // however this might only move cursor on host and not actually remove the glyph from screen (pyOCD behavior).
+            // to handle that, we also send a whitespace to overwrite it
+            //
+            // then, print another backspace to get cursor back to intended place
+            self.print("{c} {c}", .{ 8, 8 });
+
+            // nothing on buffer -> user deletes last char of prompt from screen -> write it back
+            if (self.buffer.popOrNull() == null) {
+                self.print("{c}", .{options.prompt[options.prompt.len - 1]});
+            }
+        }
+
+        pub fn popInputN(self: *Self, n: usize) void {
+            for (0..n) |_| self.popInput();
+        }
+
+        pub fn appendInput(self: *Self, slice: []const u8) void {
+            self.buffer.appendSlice(slice) catch std.debug.panic("Exhausted reception buffer", .{});
+            self.print("{s}", .{slice});
         }
 
         fn tab(self: *Self) void {
