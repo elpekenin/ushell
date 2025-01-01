@@ -4,6 +4,8 @@
 
 const std = @import("std");
 
+const Ascii = @import("Ascii.zig");
+
 const Self = @This();
 
 pub const Token = union(enum) {
@@ -17,16 +19,16 @@ pub const Token = union(enum) {
         left,
         right,
     },
-};
 
-// Aliases for convenience
-const Backspace: Token = .backspace;
-const Tab: Token = .tab;
-const Newline: Token = .newline;
-const Up: Token = .{ .arrow = .up };
-const Down: Token = .{ .arrow = .down };
-const Left: Token = .{ .arrow = .left };
-const Right: Token = .{ .arrow = .right };
+    // Aliases for convenience
+    const Backspace: Token = .backspace;
+    const Tab: Token = .tab;
+    const Newline: Token = .newline;
+    const Up: Token = .{ .arrow = .up };
+    const Down: Token = .{ .arrow = .down };
+    const Left: Token = .{ .arrow = .left };
+    const Right: Token = .{ .arrow = .right };
+};
 
 inner: std.io.AnyReader,
 
@@ -55,19 +57,19 @@ pub fn next(self: *Self) !Token {
     const byte = try self.readByte();
 
     return switch (byte) {
-        8 => Backspace,
-        9 => Tab,
-        10 => Newline,
-        27 => {
+        Ascii.Backspace => Token.Backspace,
+        Ascii.Tab => Token.Tab,
+        Ascii.Newline => Token.Newline,
+        Ascii.Escape => {
             if (try self.readByte() != '[') {
                 return error.InvalidEscapeSequence;
             }
 
             return switch (try self.readByte()) {
-                'A' => Up,
-                'B' => Down,
-                'C' => Left,
-                'D' => Right,
+                'A' => Token.Up,
+                'B' => Token.Down,
+                'C' => Token.Left,
+                'D' => Token.Right,
                 else => return error.UnknownEscapeSequence,
             };
         },

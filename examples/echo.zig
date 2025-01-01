@@ -22,7 +22,7 @@ const Commands = union(enum) {
         bar: bool,
 
         pub fn handle(self: *const @This(), shell: *Shell) void {
-            shell.print("Received: {d} {}", .{ self.foo, self.bar });
+            shell.print("{s}Received: {d} {}{s}", .{ shell.style(.red), self.foo, self.bar, shell.style(.default) });
         }
     },
 };

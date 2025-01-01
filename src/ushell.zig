@@ -7,6 +7,7 @@ const builtins = @import("builtins.zig");
 const BuiltinCommand = builtins.BuiltinCommand;
 const find = @import("find.zig");
 const history = @import("history.zig");
+const Ascii = @import("Ascii.zig");
 
 pub const Escape = @import("Escape.zig");
 pub const Parser = @import("Parser.zig");
@@ -35,6 +36,7 @@ pub const Options = struct {
     prompt: []const u8 = "$ ",
     max_line_size: usize = 200,
     max_history_size: usize = 10,
+    use_color: bool = true,
 };
 
 /// A shell's type is defined by a `union(enum)` of different commands and some optional arguments.
@@ -326,7 +328,7 @@ pub fn Shell(UserCommand: type, options: Options) type {
             // to handle that, we also send a whitespace to overwrite it
             //
             // then, print another backspace to get cursor back to intended place
-            self.print("{c} {c}", .{ 8, 8 });
+            self.print("{c} {c}", .{ Ascii.Backspace, Ascii.Backspace });
 
             // nothing on buffer -> user deletes last char of prompt from screen -> write it back
             if (self.buffer.popOrNull() == null) {
@@ -361,6 +363,12 @@ pub fn Shell(UserCommand: type, options: Options) type {
             }
 
             // TODO: list commands (if any) matching with input so far
+        }
+
+        pub fn style(_: *const Self, color: Escape.Color) []const u8 {
+            if (!options.use_color) return "";
+
+            return color.foreground();
         }
     };
 }
