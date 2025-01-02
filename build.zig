@@ -2,9 +2,12 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
 
     const ushell = b.addModule("ushell", .{
         .root_source_file = b.path("src/ushell.zig"),
+        .optimize = optimize,
+        .target =  target,
     });
 
     // Test suite
