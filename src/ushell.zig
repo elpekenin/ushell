@@ -108,7 +108,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             help,
             history,
 
-            const Error = Parser.ArgError || error{UserCommandError};
+            const Error = Parser.ArgError || error{ LineNotFound, UserCommandError };
             fn handle(builtin: BuiltinCommand, shell: *Shell) Error!void {
                 switch (builtin) {
                     .@"!" => {
@@ -119,10 +119,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                         // the command being referenced will be put in history (which makes more sense)
                         _ = shell.history.pop();
 
-                        // cant access elements past the current size
-                        if (i >= shell.history.len()) return;
-
-                        const line = shell.history.getLine(i);
+                        const line = try shell.history.getLine(i);
                         return shell.run(line) catch return error.UserCommandError;
                     },
                     .@"$?" => {
@@ -149,14 +146,16 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                         try shell.parser.assertExhausted();
 
                         const n = shell.history.len() - 1;
+                        const offset = shell.history.offset;
 
-                        for (0..n) |i| {
-                            const line = shell.history.getLine(i);
-                            shell.print("{}: {s}\n", .{ i, line });
+                        for (offset..offset + n) |i| {
+                            const line = shell.history.getLine(i) catch unreachable;
+                            shell.print("{d: >3}: {s}\n", .{ i, line });
                         }
 
-                        const line = shell.history.getLine(n);
-                        shell.print("{}: {s}", .{ n, line });
+                        const i = offset + n;
+                        const line = shell.history.getLine(i) catch unreachable;
+                        shell.print("{d: >3}: {s}", .{ i, line });
                     },
                 }
             }

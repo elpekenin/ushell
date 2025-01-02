@@ -6,17 +6,14 @@ fn Entry(options: ushell.Options) type {
     return struct {
         const Self = @This();
 
-        len: usize,
-        line: [options.max_line_size]u8,
+        line: [options.max_line_size + 1]u8,
 
         pub fn copy(self: *Self, line: []const u8) void {
             @memset(&self.line, 0);
-
             for (0.., line) |i, char| {
                 self.line[i] = char;
             }
-
-            self.len = line.len;
+            self.line[line.len] = 0;
         }
     };
 }
@@ -27,10 +24,12 @@ pub fn History(options: ushell.Options) type {
     return struct {
         const Self = @This();
 
+        offset: usize,
         entries: std.BoundedArray(E, options.max_history_size),
 
         pub fn new() Self {
             return Self{
+                .offset = 0,
                 .entries = .{},
             };
         }
@@ -47,6 +46,7 @@ pub fn History(options: ushell.Options) type {
             // if filled, remove an item
             if (self.len() == options.max_history_size) {
                 _ = self.entries.orderedRemove(0);
+                self.offset += 1;
             }
 
             // should never fail, we free a slot (if needed) above
@@ -57,9 +57,11 @@ pub fn History(options: ushell.Options) type {
         // since .get() returns a copy of the value (temporary, on stack),
         // instead of a reference to it, we *must* inline this function so that
         // the slice being returned is not a dangling pointer
-        pub inline fn getLine(self: *Self, i: usize) []const u8 {
-            const entry = self.entries.get(i);
-            return entry.line[0..entry.len];
+        pub inline fn getLine(self: *Self, i: usize) ![]const u8 {
+            if (i < self.offset or self.offset + options.max_history_size <= i) return error.LineNotFound;
+
+            const entry = self.entries.get(i - self.offset);
+            return std.mem.sliceTo(&entry.line, 0);
         }
     };
 }
