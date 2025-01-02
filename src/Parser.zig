@@ -1,5 +1,8 @@
 //! Utilities to parse user input
 
+// TODO: Convert `return try foo()` nonsense into `return foo()`
+// See: https://github.com/ziglang/zig/issues/16765
+
 const std = @import("std");
 const t = std.testing;
 
@@ -116,6 +119,22 @@ pub fn next(self: *Self) ?[]const u8 {
     return null;
 }
 
+pub fn parseToken(_: *Self, T: type, token: []const u8) ArgError!T {
+    const I = @typeInfo(T);
+
+    return switch (I) {
+        .bool => try parseBoolToken(token),
+        .@"enum" => try parseEnumToken(T, token),
+        .float => try parseFloatToken(T, token),
+        .int => try parseIntToken(T, token),
+        .optional => |o| try parseToken(o.child, token),
+        else => {
+            const msg = "Can't parse a token as type '" ++ @typeName(T) ++ "'.";
+            @compileError(msg);
+        },
+    };
+}
+
 /// Parse the next token as T, or null if iterator was exhausted
 pub fn optional(self: *Self, T: type) ArgError!?T {
     const I = @typeInfo(T);
@@ -167,19 +186,31 @@ pub fn assertExhausted(self: *Self) ArgError!void {
     }
 }
 
-fn parseBool(self: *Self) ArgError!?bool {
-    const token = self.next() orelse return null;
-
+fn parseBoolToken(token: []const u8) ArgError!bool {
     if (token.len > max_bool_arg_len) return error.InvalidArg;
-
-    var buff: [max_bool_arg_len]u8 = undefined;
-    const lower = std.ascii.lowerString(&buff, token);
 
     for (bool_literals) |bool_literal| {
         for (bool_literal.strings) |string| {
-            if (std.mem.eql(u8, string, lower)) {
+            if (std.mem.eql(u8, string, token)) {
                 return bool_literal.value;
             }
+        }
+    }
+
+    return error.InvalidArg;
+}
+
+fn parseBool(self: *Self) ArgError!?bool {
+    const token = self.next() orelse return null;
+    return try parseBoolToken(token);
+}
+
+fn parseEnumToken(T: type, token: []const u8) ArgError!T {
+    const I = @typeInfo(T);
+
+    inline for (I.@"enum".fields) |field| {
+        if (std.mem.eql(u8, token, field.name)) {
+            return @enumFromInt(field.value);
         }
     }
 
@@ -189,26 +220,27 @@ fn parseBool(self: *Self) ArgError!?bool {
 fn parseEnum(self: *Self, T: type) ArgError!?T {
     const token = self.next() orelse return null;
 
-    const I = @typeInfo(T);
+    const val = try parseEnumToken(T, token);
+    self.successful_parses += 1;
+    return val;
+}
 
-    inline for (I.@"enum".fields) |field| {
-        if (std.mem.eql(u8, token, field.name)) {
-            self.successful_parses += 1;
-            return @enumFromInt(field.value);
-        }
-    }
-
-    return error.InvalidArg;
+fn parseFloatToken(T: type, token: []const u8) ArgError!T {
+    return std.fmt.parseFloat(T, token) catch return error.InvalidArg;
 }
 
 fn parseFloat(self: *Self, T: type) ArgError!?T {
     const token = self.next() orelse return null;
-    return std.fmt.parseFloat(T, token) catch return error.InvalidArg;
+    return try parseFloatToken(T, token);
+}
+
+fn parseIntToken(T: type, token: []const u8) ArgError!T {
+    return std.fmt.parseInt(T, token, 0) catch return error.InvalidArg;
 }
 
 fn parseInt(self: *Self, T: type) ArgError!?T {
     const token = self.next() orelse return null;
-    return std.fmt.parseInt(T, token, 0) catch return error.InvalidArg;
+    return try parseIntToken(T, token);
 }
 
 fn parseStruct(self: *Self, T: type) ArgError!?T {
@@ -303,12 +335,11 @@ test "quoted" {
 }
 
 // Check that parsing a bool works, not only with "true"/"false" but also with the extra "literals" defined
-// NOTE: Parsing (for now) ignores capitalization, thus "nO" is not a typo but testing this behavior
 test "bool" {
     var parser = new("true");
     try t.expectEqual(true, try parser.required(bool));
 
-    parser = new("nO");
+    parser = new("no");
     try t.expectEqual(false, try parser.required(bool));
 }
 
