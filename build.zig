@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const ushell = b.addModule("ushell", .{
         .root_source_file = b.path("src/ushell.zig"),
         .optimize = optimize,
-        .target =  target,
+        .target = target,
     });
 
     // Test suite

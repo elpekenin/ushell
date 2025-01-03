@@ -13,7 +13,7 @@ pub inline fn findMatches(items: anytype, needle: []const u8) [][]const u8 {
             Type.UnionField,
             => item.name,
             else => {
-                const msg = "Argument of type '" ++ @typeName(items) ++ "' not supported";
+                const msg = "Invalid argument type: " ++ @typeName(items);
                 @compileError(msg);
             },
         };

@@ -129,7 +129,7 @@ pub fn parseToken(_: *Self, T: type, token: []const u8) ArgError!T {
         .int => try parseIntToken(T, token),
         .optional => |o| try parseToken(o.child, token),
         else => {
-            const msg = "Can't parse a token as type '" ++ @typeName(T) ++ "'.";
+            const msg = "Can't parse a token as type " ++ @typeName(T);
             @compileError(msg);
         },
     };
@@ -151,7 +151,7 @@ pub fn optional(self: *Self, T: type) ArgError!?T {
             .@"struct" => self.parseStruct(T),
             .@"union" => self.parseUnion(T),
             else => {
-                const msg = "Parsing arguments of type '" ++ @typeName(T) ++ "' not supported at the moment.";
+                const msg = "Can't parse arguments of type " ++ @typeName(T);
                 @compileError(msg);
             },
         } catch error.InvalidArg, // cast any type of parsing error to InvalidArg
