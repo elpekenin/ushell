@@ -7,26 +7,34 @@ const writer = std.io.getStdOut().writer().any();
 
 const Commands = union(enum) {
     echo: struct {
-        pub const allow_extra_args = true;
-        pub const usage = "usage: echo ...args";
+        pub const meta: ushell.argparse.Meta = .{
+            .usage = "usage: echo ...args",
+        };
 
-        pub fn handle(_: @This(), shell: *Shell) void {
-            while (shell.parser.next()) |val| {
-                shell.print("{s} ", .{val});
+        args: ushell.argparse.TokensLeft = .{
+            .n = 10,
+        },
+
+
+        pub fn handle(self: ushell.argparse.Args(@This()), shell: *Shell) void {
+            for (self.args.toSlice()) |token| {
+                shell.print("{s} ", .{token});
             }
         }
     },
 
-    number: struct {
-        foo: u8,
-        bar: bool,
+    foo: struct {
+        bar: u8,
+        baz: bool,
+        flag: ushell.argparse.OptionalFlag, // can be written in any place :)
 
-        pub fn handle(self: @This(), shell: *Shell) void {
-            shell.print("{s}Received: {d} {}{s}", .{
-                shell.style(.{ .foreground = .red }),
-                self.foo,
+        pub fn handle(self: ushell.argparse.Args(@This()), shell: *Shell) void {
+            shell.print("{s}Received: bar={d} baz={} flag={?}{s}", .{
+                shell.style(.red),
                 self.bar,
-                shell.style(.{ .foreground = .reset }),
+                self.baz,
+                self.flag,
+                shell.style(.default),
             });
         }
     },

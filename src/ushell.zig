@@ -4,12 +4,13 @@ const std = @import("std");
 const Type = std.builtin.Type;
 
 const history = @import("history.zig");
+const internal = @import("internal.zig");
 const usage = @import("usage.zig");
 const Ascii = @import("Ascii.zig");
 
+pub const argparse = @import("argparse.zig");
 pub const utils = @import("utils.zig");
 pub const Escape = @import("Escape.zig");
-pub const Parser = @import("Parser.zig");
 pub const Reader = @import("Reader.zig");
 
 const Output = union(enum) {
@@ -17,55 +18,81 @@ const Output = union(enum) {
     err: anyerror,
 };
 
-pub const Color = enum {
-    black,
-    red,
-    green,
-    yellow,
-    blue,
-    magenta,
-    cyan,
-    white,
-    default,
-    reset,
-};
+pub const Style = struct {
+    const Self = @This();
 
-pub const Mode = enum {
-    reset,
-    bold,
-    dim,
-    italic,
-    underline,
-    blinking,
-    inverse,
-    hidden,
-    strikethrough,
-};
+    pub const Color = enum {
+        black,
+        red,
+        green,
+        yellow,
+        blue,
+        magenta,
+        cyan,
+        white,
+        default,
+        reset,
+    };
 
-pub const TextStyle = struct {
-    foreground: Color = .white,
-    background: Color = .black,
-    mode: Mode = .reset,
+    pub const Mode = enum {
+        reset,
+        bold,
+        dim,
+        italic,
+        underline,
+        blinking,
+        inverse,
+        hidden,
+        strikethrough,
+    };
+
+    foreground: Color,
+    background: Color,
+    mode: Mode,
+
+    pub const blue: Self = .{
+        .foreground = .blue,
+        .background = .default,
+        .mode = .reset,
+    };
+
+    pub const default: Self = .{
+        .foreground = .default,
+        .background = .default,
+        .mode = .reset,
+    };
+
+    pub const green: Self = .{
+        .foreground = .green,
+        .background = .default,
+        .mode = .reset,
+    };
+
+    pub const red: Self = .{
+        .foreground = .red,
+        .background = .default,
+        .mode = .reset,
+    };
 };
 
 /// merge types(unions) into a single one
-fn MakeCommand(UserCommand: type, BuiltinCommand: type) type {
-    const U = @typeInfo(UserCommand).@"union";
-    const B = @typeInfo(BuiltinCommand).@"union";
+fn MakeCommand(comptime User: type, comptime Builtin: type) type {
+    const U = @typeInfo(User).@"union";
+    const B = @typeInfo(Builtin).@"union";
 
-    const UT = @typeInfo(U.tag_type.?).@"enum";
-    const BT = @typeInfo(B.tag_type.?).@"enum";
+    const user_tag_fields = internal.enumFields(U.tag_type.?);
+    const builtin_tag_fields = internal.enumFields(B.tag_type.?);
 
     var n: usize = 0;
-    var enum_fields: [UT.fields.len + BT.fields.len]Type.EnumField = undefined;
+    var enum_fields: [user_tag_fields.len + builtin_tag_fields.len]Type.EnumField = undefined;
 
-    for (BT.fields) |field| {
+    for (builtin_tag_fields) |field| {
         var copy = field;
         copy.value = n;
         enum_fields[n] = copy;
         n += 1;
     }
-    for (UT.fields) |field| {
+    for (user_tag_fields) |field| {
         var copy = field;
         copy.value = n;
         enum_fields[n] = copy;
@@ -95,15 +122,8 @@ fn MakeCommand(UserCommand: type, BuiltinCommand: type) type {
 fn validate(T: type, options: Options) void {
     const I = @typeInfo(T);
 
-    if (I != .@"union") {
-        const msg = "Commands must be represented with a `union(enum)`";
-        @compileError(msg);
-    }
-
-    if (options.max_line_size == 0 or options.max_history_size == 0) {
-        const msg = "Buffers can't be 0-sized";
-        @compileError(msg);
-    }
+    if (I != .@"union") internal.err("Commands must be represented with a `union(enum)`");
+    if (options.max_line_size == 0 or options.max_history_size == 0) internal.err("Buffers can't be 0-sized");
 }
 
 pub const Options = struct {
@@ -114,12 +134,6 @@ pub const Options = struct {
 };
 
 /// A shell's type is defined by a `union(enum)` of different commands and some optional arguments.
-///
-/// By default, extra arguments (more than strictly needed to fill the struct) will cause an error,
-/// you can opt-out this behaviour by adding `pub const allow_extra_args = true;` to your struct.
-///
-/// You can also overwrite the default `usage: ...` message by defining your own message to be shown,
-/// with `pub const usage = "my command should be used as: hello <world>";`
 ///
 /// At runtime, an instance of this type is created by calling `Shell.new` with a reader and writer.
 ///
@@ -135,7 +149,6 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
         input: Reader,
         writer: std.io.AnyWriter,
 
-        parser: Parser,
         buffer: std.BoundedArray(u8, options.max_line_size),
         history: History,
 
@@ -144,11 +157,13 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
 
         const BuiltinCommand = union(enum) {
             @"!": struct {
-                pub const description = "re-run n'th command in history";
+                pub const meta: argparse.Meta = .{
+                    .description = "re-run n'th command in history",
+                };
 
                 i: usize,
 
-                const Error = Parser.ArgError || error{ LineNotFound, UserCommandError };
+                const Error = error{ LineNotFound, UserCommandError };
                 pub fn handle(self: @This(), shell: *Shell) Error!void {
                     // remove "! <n>" from history
                     // the command being referenced will be put in history (which makes more sense)
@@ -160,9 +175,11 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             },
 
             @"$?": struct {
-                pub const description = "show last command's exitcode";
+                pub const meta: argparse.Meta = .{
+                    .description = "show last command's exitcode",
+                };
 
-                pub fn handle(_: @This(), shell: *Shell) !void {
+                pub fn handle(_: @This(), shell: *Shell) void {
                     switch (shell.last_output) {
                         .ok => shell.print("0", .{}),
                         .err => |e| shell.print("1 ({})", .{e}),
@@ -171,49 +188,61 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             },
 
             clear: struct {
-                pub const description = "wipe the screen";
+                pub const meta: argparse.Meta = .{
+                    .description = "wipe the screen",
+                };
 
-                pub fn handle(_: @This(), shell: *Shell) !void {
+                pub fn handle(_: @This(), shell: *Shell) void {
                     shell.print("{s}", .{Escape.Clear});
                 }
             },
 
             exit: struct {
-                pub const description = "quit shell session";
+                pub const meta: argparse.Meta = .{
+                    .description = "quit shell session",
+                };
 
-                pub fn handle(_: @This(), shell: *Shell) !void {
+                pub fn handle(_: @This(), shell: *Shell) void {
                     shell.stop_running = true;
                 }
             },
 
             help: struct {
-                pub const usage =
-                    \\usage:
-                    \\  help -- list available commands
-                    \\  help <command> -- show usage of <command>
-                ;
+                pub const meta: argparse.Meta = .{
+                    .usage =
+                    \\usage: help [command]
+                    \\
+                    \\list available commands
+                    \\
+                    \\
+                    \\arguments:
+                    \\  command    show usage of a specific command instead
+                    ,
+                };
 
                 name: ?[]const u8 = null,
 
-                pub fn handle(self: @This(), shell: *Shell) !void {
+                pub fn handle(self: @This(), shell: *Shell) void {
                     shell.help(self.name);
                 }
 
-                pub fn tab(shell: *Shell) !void {
-                    const maybe_input = shell.parser.next();
-                    if (maybe_input != null) {
-                        try shell.parser.assertExhausted();
-                    }
+                // pub fn tab(shell: *Shell) !void {
+                //     const maybe_input = shell.parser.next();
+                //     if (maybe_input != null) {
+                //         try shell.parser.assertExhausted();
+                //     }
 
-                    const needle = maybe_input orelse "";
+                //     const needle = maybe_input orelse "";
 
-                    const matches = utils.findMatches(command_names, needle);
-                    shell.complete(needle, matches);
-                }
+                //     const matches = utils.findMatches(command_names, needle);
+                //     shell.complete(needle, matches);
+                // }
             },
 
             history: struct {
-                pub const description = "show last commands used";
+                pub const meta: argparse.Meta = .{
+                    .description = "show last commands used",
+                };
 
                 pub fn handle(_: @This(), shell: *Shell) !void {
                     const n = shell.history.len() - 1;
@@ -232,28 +261,40 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
         };
 
         const Command = MakeCommand(UserCommand, BuiltinCommand);
-        const CommandInfo = struct {
-            // TODO?: *const fn handle(...)
+        const CommandParser = argparse.ArgumentParser(Command);
+
+        const Info = struct {
+            handle: *const fn (*const anyopaque, *Shell) anyerror!void,
             tab: *const fn (*Shell) anyerror!void,
             usage: []const u8,
         };
         fn noop_tab(_: *Shell) !void {}
 
-        const Map = std.StaticStringMap(CommandInfo);
+        const Map = std.StaticStringMap(Info);
 
-        const command_map = blk: {
-            const C = @typeInfo(Command).@"union";
+        const command_info = blk: {
+            const fields = internal.unionFields(Command);
 
             var n: usize = 0;
-            var kvs: [C.fields.len]struct { []const u8, CommandInfo } = undefined;
+            var kvs: [fields.len]struct { []const u8, Info } = undefined;
 
-            for (C.fields) |field| {
-                const T = field.type;
+            for (fields) |field| {
+                const Cmd = field.type;
 
-                kvs[n] = .{ field.name, CommandInfo{
-                    .tab = if (@hasDecl(T, "tab")) T.tab else noop_tab,
-                    .usage = usage.from(T, field.name),
-                } };
+                const meta: argparse.Meta = if (@hasDecl(Cmd, "meta")) Cmd.meta else .{};
+
+                kvs[n] = .{
+                    field.name, Info{
+                        .handle = struct {
+                            fn impl(args: *const anyopaque, shell: *Shell) !void {
+                                const casted: *const argparse.Args(Cmd) = @alignCast(@ptrCast(args));
+                                return Cmd.handle(casted.*, shell);
+                            }
+                        }.impl,
+                        .tab = if (std.meta.hasFn(Cmd, "tab")) Cmd.tab else noop_tab,
+                        .usage = usage.of(Cmd, meta, field.name),
+                    },
+                };
 
                 n += 1;
             }
@@ -261,11 +302,11 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             break :blk Map.initComptime(kvs[0..n]);
         };
 
-        const command_names = command_map.keys();
+        const command_names = command_info.keys();
 
         const Help = struct {
             fn forCommand(shell: *Shell, name: []const u8) void {
-                const command = command_map.get(name) orelse return;
+                const command = command_info.get(name) orelse return;
                 shell.print("{s}", .{command.usage});
             }
 
@@ -286,7 +327,6 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             return Shell{
                 .input = Reader.new(reader),
                 .writer = writer,
-                .parser = undefined,
                 .buffer = .{},
                 .history = History.new(),
                 .stop_running = false,
@@ -356,14 +396,19 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
         }
 
         fn tab(shell: *Shell) void {
-            shell.parser = Parser.new(shell.buffer.constSlice());
-            const needle = shell.parser.next() orelse "";
+            const result = CommandParser.parse(shell.buffer.constSlice());
+            const needle = switch (result) {
+                .ok => return,
+                .empty_input => "",
+                .parsing_error => |info| info.name, // TODO: error?
+                .unknown_command => |name| name,
+            };
 
             const matches = utils.findMatches(command_names, needle);
             if (matches.len == 0) return;
 
             // handle command-specific completion
-            if (command_map.get(needle)) |command| {
+            if (command_info.get(needle)) |command| {
                 return command.tab(shell) catch {};
             }
 
@@ -373,38 +418,51 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
         fn run(shell: *Shell, line: []const u8) !void {
             errdefer |e| shell.last_output = .{ .err = e };
 
-            shell.parser = Parser.new(line);
-
-            // nothing to do if user simply pressed enter
-            if (!shell.parser.tokensLeft()) {
-                return;
-            }
-
             shell.history.append(line);
 
-            // FIXME: `catch |err|` + `return err` doesn't work (??)
-            const command = shell.parser.required(Command) catch {
-                // couldn't parse, lets try and get command info from its name
-                const name = shell.parser.first() orelse unreachable;
-                shell.help(name);
-                return error.InvalidArg;
+            const result = CommandParser.parse(line);
+            const command = switch (result) {
+                .ok => |command| command,
+                .empty_input => {
+                    _ = shell.history.pop(); // remove empty line from history
+                    return;
+                },
+                .parsing_error => |info| {
+                    shell.print("{s}", .{shell.style(.red)});
+                    shell.print("Error parsing input ({s})", .{@errorName(info.err)});
+
+                    shell.print("{s}", .{shell.style(.green)});
+                    shell.print("\nHint: run `help {s}` to see command's usage", .{info.name});
+
+                    shell.print("{s}", .{shell.style(.default)});
+                    return @as(anyerror!void, info.err); // FIXME: why?
+                },
+                .unknown_command => |name| {
+                    shell.print("{s}", .{shell.style(.red)});
+                    shell.unknown(name);
+                    shell.print("{s}", .{shell.style(.default)});
+
+                    return error.UnknownCommand;
+                },
             };
 
-            switch (command) {
-                inline else => |cmd| {
-                    const Cmd = @TypeOf(cmd);
+            errdefer |err| {
+                shell.print("{s}", .{shell.style(.red)});
+                shell.print("Error running ({s})\n", .{@errorName(err)});
 
-                    errdefer shell.help(shell.parser.first());
+                shell.print("{s}", .{shell.style(.green)});
+                shell.print("\nHint: run `help {s}` to see command's usage", .{command.name});
 
-                    if (!@hasDecl(Cmd, "allow_extra_args") or !Cmd.allow_extra_args) {
-                        try shell.parser.assertExhausted();
-                    }
+                shell.help(command.name);
 
-                    return cmd.handle(shell);
-                },
+                shell.print("{s}", .{shell.style(.default)});
             }
 
+            const info = command_info.get(command.name) orelse unreachable;
+            const ret = try info.handle(&command.args, shell);
+
             shell.last_output = .ok;
+            return ret;
         }
 
         pub fn loop(shell: *Shell) void {
@@ -413,6 +471,10 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                 const line = shell.readline() catch continue;
                 shell.run(line) catch continue;
             }
+        }
+
+        fn unknown(shell: *Shell, name: []const u8) void {
+            shell.print("unknown command: {s}", .{name});
         }
 
         fn help(shell: *Shell, maybe_name: ?[]const u8) void {
@@ -424,9 +486,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             // based on this knowledge
             const name = maybe_name orelse return Help.list(shell);
 
-            const command = command_map.get(name) orelse {
-                return shell.print("unknown command: {s}", .{name});
-            };
+            const command = command_info.get(name) orelse return shell.unknown(name);
 
             shell.print("{s}", .{command.usage});
         }
@@ -457,7 +517,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             shell.print("{s}", .{slice});
         }
 
-        pub fn style(_: *const Shell, s: TextStyle) []const u8 {
+        pub fn style(_: *const Shell, s: Style) []const u8 {
             if (!options.use_color) return "";
             return Escape.styleFor(s);
         }

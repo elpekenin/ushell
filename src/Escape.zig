@@ -6,7 +6,7 @@ const ushell = @import("ushell.zig");
 
 pub const Clear = "\x1b[2J";
 
-pub fn styleFor(style: ushell.TextStyle) []const u8 {
+pub fn styleFor(style: ushell.Style) []const u8 {
     // TODO: implement background and mode support
     return switch (style.foreground) {
         .black => "\x1b[0;30m",

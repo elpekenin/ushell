@@ -20,14 +20,15 @@ pub const Token = union(enum) {
         right,
     },
 
+    fn c(b: u8) Token {
+        return .{ .char = b };
+    }
+
     // Aliases for convenience
-    const Backspace: Token = .backspace;
-    const Tab: Token = .tab;
-    const Newline: Token = .newline;
-    const Up: Token = .{ .arrow = .up };
-    const Down: Token = .{ .arrow = .down };
-    const Left: Token = .{ .arrow = .left };
-    const Right: Token = .{ .arrow = .right };
+    const up: Token = .{ .arrow = .up };
+    const down: Token = .{ .arrow = .down };
+    const left: Token = .{ .arrow = .left };
+    const right: Token = .{ .arrow = .right };
 };
 
 inner: std.io.AnyReader,
@@ -57,22 +58,22 @@ pub fn next(self: *Self) !Token {
     const byte = try self.readByte();
 
     return switch (byte) {
-        Ascii.Backspace => Token.Backspace,
-        Ascii.Tab => Token.Tab,
-        Ascii.Newline => Token.Newline,
+        Ascii.Backspace => .backspace,
+        Ascii.Tab => .tab,
+        Ascii.Newline => .newline,
         Ascii.Escape => {
             if (try self.readByte() != '[') {
                 return error.InvalidEscapeSequence;
             }
 
             return switch (try self.readByte()) {
-                'A' => Token.Up,
-                'B' => Token.Down,
-                'C' => Token.Left,
-                'D' => Token.Right,
+                'A' => .up,
+                'B' => .down,
+                'C' => .left,
+                'D' => .right,
                 else => return error.UnknownEscapeSequence,
             };
         },
-        else => Token{ .char = byte },
+        else => .c(byte),
     };
 }
