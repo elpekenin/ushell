@@ -140,9 +140,8 @@ pub fn ArgumentParser(comptime Spec: type, comptime options: Options) type {
     return struct {
         /// Try and extract a command and its arguments from user input
         pub fn parse(input: []const u8) Return {
-            var tokenizer: Tokenizer(options) = .new(input);
-
-            const tokens = tokenizer.tokens();
+            var tokenizer: Tokenizer(options) = .new();
+            const tokens = tokenizer.getTokens(input);
 
             if (tokens.len == 0) return .empty_input;
 
@@ -355,33 +354,19 @@ fn Tokenizer(comptime options: Options) type {
         /// "whitespace" chars to split at (delimit words) when parsing
         const delimiters = " \r\n\t\u{0}";
 
-        iterator: std.mem.TokenIterator(u8, .any),
-        len: usize,
         buffer: [options.max_tokens][]const u8,
 
-        pub fn new(input: []const u8) Self {
+        pub fn new() Self {
             return Self{
-                .iterator = std.mem.tokenizeAny(u8, input, delimiters),
-                .len = 0,
                 .buffer = .{"no init"} ** options.max_tokens,
             };
         }
 
-        pub fn tokens(self: *Self) []const []const u8 {
-            while (self.next()) |token| {
-                if (self.len == options.max_tokens) std.debug.panic("Exhausted parser's buffer", .{});
+        // get next token from iterator, handling quoted strings
+        fn next(iterator: *std.mem.TokenIterator(u8, .any)) ?[]const u8 {
+            const start = iterator.index;
 
-                self.buffer[self.len] = token;
-                self.len += 1;
-            }
-
-            return self.buffer[0..self.len];
-        }
-
-        fn next(self: *Self) ?[]const u8 {
-            const start = self.iterator.index;
-
-            const raw = self.iterator.next() orelse return null;
+            const raw = iterator.next() orelse return null;
 
             const char = raw[0];
             if (char != '"' and char != '\'') {
@@ -390,16 +375,30 @@ fn Tokenizer(comptime options: Options) type {
 
             // getting here means we got a quoted string
             // keep consuming input until we get its closing counterpart
-            while (self.next()) |token| {
+            while (next(iterator)) |token| {
                 if (token[token.len - 1] == char) {
-                    const end = self.iterator.index - 1;
-                    return self.iterator.buffer[start + 2 .. end];
+                    const end = iterator.index - 1;
+                    return iterator.buffer[start + 2 .. end];
                 }
             }
 
             // exhausted input while looking for closing quote => no token to be returned
             // TODO?: Error?
             return null;
+        }
+
+        pub fn getTokens(self: *Self, input: []const u8) []const []const u8 {
+            var n: usize = 0;
+            var iterator = std.mem.tokenizeAny(u8, input, delimiters);
+
+            while (next(&iterator)) |token| {
+                if (n == options.max_tokens) std.debug.panic("Exhausted parser's buffer", .{});
+
+                self.buffer[n] = token;
+                n += 1;
+            }
+
+            return self.buffer[0..n];
         }
     };
 }
