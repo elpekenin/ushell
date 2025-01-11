@@ -123,7 +123,7 @@ fn validate(T: type, options: Options) void {
     const I = @typeInfo(T);
 
     if (I != .@"union") internal.err("Commands must be represented with a `union(enum)`");
-    if (options.max_line_size == 0 or options.max_history_size == 0) internal.err("Buffers can't be 0-sized");
+    if (options.max_line_size == 0 or options.max_history_size == 0) internal.err("Buffer can't be 0-sized");
 }
 
 pub const Options = struct {
@@ -131,6 +131,8 @@ pub const Options = struct {
     max_line_size: usize = 200,
     max_history_size: usize = 10,
     use_color: bool = true,
+
+    parser_options: argparse.Options,
 };
 
 /// A shell's type is defined by a `union(enum)` of different commands and some optional arguments.
@@ -261,7 +263,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
         };
 
         const Command = MakeCommand(UserCommand, BuiltinCommand);
-        const CommandParser = argparse.ArgumentParser(Command);
+        const CommandParser = argparse.ArgumentParser(Command, options.parser_options);
 
         const Info = struct {
             handle: *const fn (*const anyopaque, *Shell) anyerror!void,

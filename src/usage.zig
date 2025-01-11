@@ -40,7 +40,7 @@ fn ofEnum(comptime fields: []const Type.EnumField) []const u8 {
 fn ofStruct(comptime fields: []const Type.StructField) []const u8 {
     var usage: []const u8 = "";
     inline for (fields) |field| {
-        usage = p("{s}{s}", .{ usage,  ofField(field) });
+        usage = p("{s}{s}", .{ usage, ofField(field) });
     }
     return usage;
 }
@@ -68,9 +68,9 @@ fn ofField(comptime field: Type.StructField) []const u8 {
 
     // special case
     // without this, we would print `flag: [--flag,--no-flag]`
-    if (T == argparse.OptionalFlag) return p(" [--{0s},--no-{0s}]", .{ field.name });
+    if (T == argparse.OptionalFlag) return p(" [--{0s},--no-{0s}]", .{field.name});
 
-    return p(" {s}({s}){s}", .{field.name, ofType(T), defaultValue(field) });
+    return p(" {s}({s}){s}", .{ field.name, ofType(T), defaultValue(field) });
 }
 
 pub fn of(comptime T: type, comptime meta: argparse.Meta, comptime name: []const u8) []const u8 {

@@ -11,13 +11,10 @@ const Commands = union(enum) {
             .usage = "usage: echo ...args",
         };
 
-        args: ushell.argparse.TokensLeft = .{
-            .n = 10,
-        },
-
+        args: ushell.argparse.TokensLeft,
 
         pub fn handle(self: ushell.argparse.Args(@This()), shell: *Shell) void {
-            for (self.args.toSlice()) |token| {
+            for (self.args) |token| {
                 shell.print("{s} ", .{token});
             }
         }
@@ -40,7 +37,11 @@ const Commands = union(enum) {
     },
 };
 
-const Shell = ushell.MakeShell(Commands, .{});
+const Shell = ushell.MakeShell(Commands, .{
+    .parser_options = .{
+        .max_tokens = 100,
+    },
+});
 
 pub fn main() !void {
     var shell = Shell.new(reader, writer);

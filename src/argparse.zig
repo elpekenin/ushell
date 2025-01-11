@@ -23,7 +23,6 @@ pub const Meta = struct {
 //
 
 // WARN: Remember to implement `translatedField` for new types here
-// TODO: Detect and error out when flags are used along with VaArgs
 
 /// When a field is defined as `name: OptionalFlag`, passing `--name` or `--no-name`
 /// will set `name` to `true` or `false` in the parsed type. If neither is found, value is `null`.
@@ -34,12 +33,10 @@ pub const Meta = struct {
 /// and `mkdir foo --parents`
 pub const OptionalFlag = struct {};
 
-/// Capture up to `n` tokens.
-/// 
+/// Capture remaining tokens.
+///
 /// Must be the last non-optional field in a command.
-pub const TokensLeft = struct {
-    n: usize,
-};
+pub const TokensLeft = struct {};
 
 // Future ideas:
 //   * Flag with default value
@@ -125,10 +122,17 @@ pub fn Result(comptime Spec: type) type {
     };
 }
 
+/// Some configuration of how the parser works
+pub const Options = struct {
+    max_tokens: usize,
+};
+
 /// Given a collection of commands in the form of a `union(enum)`, this function returns
 /// a type whose `.parse([]const u8)` function will try and parse one of them (name and args)
 /// from user input
-pub fn ArgumentParser(comptime Spec: type) type {
+pub fn ArgumentParser(comptime Spec: type, comptime options: Options) type {
+    if (options.max_tokens == 0) internal.err("Buffer can't be 0-sized");
+
     const Parsed = Args(Spec);
     const Return = Result(Spec);
     const fields = internal.unionFields(Spec);
@@ -136,13 +140,18 @@ pub fn ArgumentParser(comptime Spec: type) type {
     return struct {
         /// Try and extract a command and its arguments from user input
         pub fn parse(input: []const u8) Return {
-            var tokenizer: Tokenizer = .from(input);
+            var tokenizer: Tokenizer(options) = .new(input);
 
-            const tag = tokenizer.next() orelse return .empty_input;
+            const tokens = tokenizer.tokens();
 
+            if (tokens.len == 0) return .empty_input;
+
+            const tag = tokens[0];
+
+            // find the struct used by this tag, and parse it
             inline for (fields) |field| {
                 if (std.mem.eql(u8, field.name, tag)) {
-                    const inner = parseStruct(field.type, &tokenizer) catch |e| {
+                    const inner = parseStruct(field.type, tokens[1..]) catch |e| {
                         return .{
                             .parsing_error = .{
                                 .name = tag,
@@ -221,63 +230,29 @@ fn parseInt(comptime T: type, token: []const u8) !T {
 
 const dummy: ?bool = null;
 
-fn Slice(comptime n: usize) type {
-    return struct {
-        const Self = @This();
-
-        pub const capacity = n;
-
-        len: usize,
-        buff: [capacity][]const u8,
-
-        pub fn new() Self {
-            return .{
-                .len = 0,
-                .buff = .{"not filled"} ** capacity,
-            };
-        }
-
-        pub fn append(self: *Self, item: []const u8) !void {
-            if (self.len == capacity) return error.Overflow;
-            self.buff[self.len] = item;
-            self.len += 1;
-        }
-
-        pub fn toSlice(self: *const Self) []const []const u8 {
-            return self.buff[0 .. self.len];
-        }
-    };
-}
-
 /// Make conversions for some types that change during translation
 /// eg: `OptionalFlag` -> `?bool = null`
 fn translatedField(comptime field: Type.StructField) Type.StructField {
-    switch (field.type) {
-        OptionalFlag => {
-            return .{
-                .name = field.name,
-                .type = ?bool,
-                // &null here is wrong (?)
-                .default_value = &dummy,
-                .is_comptime = false,
-                .alignment = std.meta.alignment(?bool),
-            };
+    return switch (field.type) {
+        OptionalFlag => .{
+            .name = field.name,
+            .type = ?bool,
+            // &null here is wrong (?)
+            .default_value = &dummy,
+            .is_comptime = false,
+            .alignment = std.meta.alignment(?bool),
         },
 
-        TokensLeft => {
-            const config = internal.defaultValueOf(field) orelse internal.err("TokensLeft field was not configured");
-
-            return .{
-                .name = field.name,
-                .type = Slice(config.n),
-                .default_value = null,
-                .is_comptime = false,
-                .alignment = std.meta.alignment([][]const u8),
-            };    
+        TokensLeft => .{
+            .name = field.name,
+            .type = []const []const u8,
+            .default_value = null,
+            .is_comptime = false,
+            .alignment = std.meta.alignment([][]const u8),
         },
 
-        else => return field,
-    }
+        else => field,
+    };
 }
 
 fn indexOfFirstDefault(comptime T: type) ?usize {
@@ -296,7 +271,7 @@ fn validateBefore(comptime fields: []const Type.StructField) void {
         if (tokens_left_index != null) internal.err("TokensLeft must be the last field");
 
         if (field.type == TokensLeft) {
-            if (tokens_left_index) |_| internal.err("TokensLeft can only appear once"); 
+            if (tokens_left_index) |_| internal.err("TokensLeft can only appear once");
 
             tokens_left_index = n;
         }
@@ -373,44 +348,61 @@ fn defaultStruct(comptime T: type) T {
 ///
 /// Handles quoting, such that `"hello world"` emits `hello world`
 /// and not `"hello` + `world"`
-const Tokenizer = struct {
-    const Self = @This();
+fn Tokenizer(comptime options: Options) type {
+    return struct {
+        const Self = @This();
 
-    /// "whitespace" chars to split at (delimit words) when parsing
-    const delimiters = " \r\n\t\u{0}";
+        /// "whitespace" chars to split at (delimit words) when parsing
+        const delimiters = " \r\n\t\u{0}";
 
-    inner: std.mem.TokenIterator(u8, .any),
+        iterator: std.mem.TokenIterator(u8, .any),
+        len: usize,
+        buffer: [options.max_tokens][]const u8,
 
-    fn from(input: []const u8) Self {
-        return Self{
-            .inner = std.mem.tokenizeAny(u8, input, delimiters),
-        };
-    }
-
-    fn next(self: *Self) ?[]const u8 {
-        const start = self.inner.index;
-
-        const raw = self.inner.next() orelse return null;
-
-        const char = raw[0];
-        if (char != '"' and char != '\'') {
-            return raw;
+        pub fn new(input: []const u8) Self {
+            return Self{
+                .iterator = std.mem.tokenizeAny(u8, input, delimiters),
+                .len = 0,
+                .buffer = .{"no init"} ** options.max_tokens,
+            };
         }
 
-        // getting here means we got a quoted string
-        // keep consuming input until we get its closing counterpart
-        while (self.next()) |token| {
-            if (token[token.len - 1] == char) {
-                const end = self.inner.index - 1;
-                return self.inner.buffer[start + 2 .. end];
+        pub fn tokens(self: *Self) []const []const u8 {
+            while (self.next()) |token| {
+                if (self.len == options.max_tokens) std.debug.panic("Exhausted parser's buffer", .{});
+
+                self.buffer[self.len] = token;
+                self.len += 1;
             }
+
+            return self.buffer[0..self.len];
         }
 
-        // exhausted input while looking for closing quote => no token to be returned
-        // TODO?: Error?
-        return null;
-    }
-};
+        fn next(self: *Self) ?[]const u8 {
+            const start = self.iterator.index;
+
+            const raw = self.iterator.next() orelse return null;
+
+            const char = raw[0];
+            if (char != '"' and char != '\'') {
+                return raw;
+            }
+
+            // getting here means we got a quoted string
+            // keep consuming input until we get its closing counterpart
+            while (self.next()) |token| {
+                if (token[token.len - 1] == char) {
+                    const end = self.iterator.index - 1;
+                    return self.iterator.buffer[start + 2 .. end];
+                }
+            }
+
+            // exhausted input while looking for closing quote => no token to be returned
+            // TODO?: Error?
+            return null;
+        }
+    };
+}
 
 /// Wrapper on top of an `ArrayBitSet` to track parsing of fields
 ///   * Which ones have (not) been found
@@ -478,42 +470,15 @@ fn parseFlag(
     return error.UnknownFlag;
 }
 
-// TODO: refactor code so that we dont parse first arg before hitting this function
-// it makes the code both less intuitive and longer
-/// If token is a [][]const u8, parse it
-fn parseLeft(
-    comptime Spec: type,
-    comptime field_info: Type.StructField,
-    first: []const u8,
-    tokenizer: *Tokenizer,
-    ret: *Struct(Spec),
-) !void {
-    const F = field_info.type;
-    const n = F.capacity;
-
-    var field: *F = &@field(ret, field_info.name);
-
-    field.* = F.new();
-    try field.append(first);
-
-    var i: usize = 1;
-    while (i < n) : (i += 1) {
-        const token = tokenizer.next() orelse return;
-        try field.append(token);
-    }
-
-    return error.OverflownTokensLeft;
-}
-
 /// Given an input type, try and parse an instance of it from the stream of tokens.
-fn parseStruct(comptime Spec: type, tokenizer: *Tokenizer) !Struct(Spec) {
+fn parseStruct(comptime Spec: type, tokens: []const []const u8) !Struct(Spec) {
     const Parsed = Struct(Spec);
     var ret: Parsed = defaultStruct(Parsed);
 
     // store which fields have been parsed already
     var parsed_fields: ParsedFields(Parsed) = .initEmpty();
 
-    token_loop: while (tokenizer.next()) |token| {
+    token_loop: for (0.., tokens) |n_token, token| {
         if (parsed_fields.full()) return error.TooManyArgs;
 
         // if we parsed a flag, skill extra logic
@@ -523,22 +488,24 @@ fn parseStruct(comptime Spec: type, tokenizer: *Tokenizer) !Struct(Spec) {
         }
 
         // first field that hasn't been parsed yet
-        const index = parsed_fields.next();
+        const next_arg_index = parsed_fields.next();
 
         // we can't use `const field = fields[index]` because `index` is runtime and `fields` contains
         // comptime-only information (types)... hack around with inline loop
         //
         // on a similar note, can't clean up code with guard clauses because they use runtime information
-        inline for (0.., internal.structFields(Spec), internal.structFields(Parsed)) |n, in, out| {
-            if (n == index) {
-                if (in.type == TokensLeft) {
-                    try parseLeft(Spec, out, token, tokenizer, &ret);
-                    try parsed_fields.add(n);
-                    break :token_loop; // we are done
-                }
+        inline for (0.., internal.structFields(Spec), internal.structFields(Parsed)) |n_field, in, field| {
+            if (n_field == next_arg_index) {
+                const is_tokens_left = in.type == TokensLeft;
 
-                @field(ret, out.name) = try parseToken(out.type, token);
-                try parsed_fields.add(n);
+                // consume everything left
+                @field(ret, field.name) = if (is_tokens_left)
+                    tokens[n_token..]
+                else
+                    try parseToken(field.type, token);
+                try parsed_fields.add(n_field);
+
+                if (is_tokens_left) break :token_loop;
             }
         }
     }
