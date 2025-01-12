@@ -10,6 +10,7 @@ const Type = std.builtin.Type;
 
 const internal = @import("internal.zig");
 
+// TODO?: Explicit error on non-flat types (eg struct within a struct)
 // TODO?: Print diagnostics when parsing a line fails
 
 /// Metadata about a command (it is optional)
@@ -36,7 +37,7 @@ pub const OptionalFlag = struct {};
 /// Capture remaining tokens.
 ///
 /// Must be the last non-optional field in a command.
-pub const TokensLeft = struct {};
+pub const RemainingTokens = struct {};
 
 // Future ideas:
 //   * Flag with default value
@@ -242,7 +243,7 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
             .alignment = std.meta.alignment(?bool),
         },
 
-        TokensLeft => .{
+        RemainingTokens => .{
             .name = field.name,
             .type = []const []const u8,
             .default_value = null,
@@ -263,22 +264,22 @@ fn indexOfFirstDefault(comptime T: type) ?usize {
 }
 
 fn validateBefore(comptime fields: []const Type.StructField) void {
-    var tokens_left_index: ?usize = null;
+    var remaining_tokens_index: ?usize = null;
     var optional_flags: bool = false;
 
     for (0.., fields) |n, field| {
-        if (tokens_left_index != null) internal.err("TokensLeft must be the last field");
+        if (remaining_tokens_index != null) internal.err("RemainingTokens must be the last field");
 
-        if (field.type == TokensLeft) {
-            if (tokens_left_index) |_| internal.err("TokensLeft can only appear once");
+        if (field.type == RemainingTokens) {
+            if (remaining_tokens_index) |_| internal.err("RemainingTokens can only appear once");
 
-            tokens_left_index = n;
+            remaining_tokens_index = n;
         }
 
         if (!optional_flags and field.type == OptionalFlag) optional_flags = true;
     }
 
-    if (optional_flags and tokens_left_index != null) internal.err("Can't use OptionalFlag and TokensLeft at the same time");
+    if (optional_flags and remaining_tokens_index != null) internal.err("Can't use OptionalFlag and RemainingTokens at the same time");
 }
 
 /// Validate some constraints after adjusting type, before using @Type
@@ -347,7 +348,7 @@ fn defaultStruct(comptime T: type) T {
 ///
 /// Handles quoting, such that `"hello world"` emits `hello world`
 /// and not `"hello` + `world"`
-fn Tokenizer(comptime options: Options) type {
+pub fn Tokenizer(comptime options: Options) type {
     return struct {
         const Self = @This();
 
@@ -495,16 +496,15 @@ fn parseStruct(comptime Spec: type, tokens: []const []const u8) !Struct(Spec) {
         // on a similar note, can't clean up code with guard clauses because they use runtime information
         inline for (0.., internal.structFields(Spec), internal.structFields(Parsed)) |n_field, in, field| {
             if (n_field == next_arg_index) {
-                const is_tokens_left = in.type == TokensLeft;
+                const is_remaining_tokens = in.type == RemainingTokens;
 
-                // consume everything left
-                @field(ret, field.name) = if (is_tokens_left)
-                    tokens[n_token..]
+                @field(ret, field.name) = if (is_remaining_tokens)
+                    tokens[n_token..] // consume everything
                 else
-                    try parseToken(field.type, token);
+                    try parseToken(field.type, token); // regular parsing
                 try parsed_fields.add(n_field);
 
-                if (is_tokens_left) break :token_loop;
+                if (is_remaining_tokens) break :token_loop;
             }
         }
     }

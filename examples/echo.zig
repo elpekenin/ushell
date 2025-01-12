@@ -2,18 +2,15 @@ const std = @import("std");
 
 const ushell = @import("ushell");
 
-const reader = std.io.getStdIn().reader().any();
-const writer = std.io.getStdOut().writer().any();
-
 const Commands = union(enum) {
     echo: struct {
-        pub const meta: ushell.argparse.Meta = .{
+        pub const meta: ushell.Meta = .{
             .usage = "usage: echo ...args",
         };
 
-        args: ushell.argparse.TokensLeft,
+        args: ushell.RemainingTokens,
 
-        pub fn handle(self: ushell.argparse.Args(@This()), shell: *Shell) void {
+        pub fn handle(self: ushell.Args(@This()), shell: *Shell) void {
             for (self.args) |token| {
                 shell.print("{s} ", .{token});
             }
@@ -23,9 +20,10 @@ const Commands = union(enum) {
     foo: struct {
         bar: u8,
         baz: bool,
-        flag: ushell.argparse.OptionalFlag, // can be written in any place :)
+        // can be written in any order in the input
+        flag: ushell.OptionalFlag,
 
-        pub fn handle(self: ushell.argparse.Args(@This()), shell: *Shell) void {
+        pub fn handle(self: ushell.Args(@This()), shell: *Shell) void {
             shell.print("{s}Received: bar={d} baz={} flag={?}{s}", .{
                 shell.style(.red),
                 self.bar,
@@ -44,6 +42,9 @@ const Shell = ushell.MakeShell(Commands, .{
 });
 
 pub fn main() !void {
+    const reader = std.io.getStdIn().reader().any();
+    const writer = std.io.getStdOut().writer().any();
+
     var shell = Shell.new(reader, writer);
     shell.loop();
 }

@@ -8,7 +8,15 @@ const internal = @import("internal.zig");
 const usage = @import("usage.zig");
 const Ascii = @import("Ascii.zig");
 
-pub const argparse = @import("argparse.zig");
+/// dont want to expose everything in here
+/// lets re-expose some of them, and with shorter paths
+const argparse = @import("argparse.zig");
+pub const parseToken = argparse.parseToken;
+pub const Meta = argparse.Meta;
+pub const Args = argparse.Args;
+pub const OptionalFlag = argparse.OptionalFlag;
+pub const RemainingTokens = argparse.RemainingTokens;
+
 pub const utils = @import("utils.zig");
 pub const Escape = @import("Escape.zig");
 pub const Reader = @import("Reader.zig");
@@ -267,10 +275,10 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
 
         const Info = struct {
             handle: *const fn (*const anyopaque, *Shell) anyerror!void,
-            tab: *const fn (*Shell) anyerror!void,
+            tab: *const fn (*Shell, tokens: []const []const u8) anyerror!void,
             usage: []const u8,
         };
-        fn noop_tab(_: *Shell) !void {}
+        fn noop_tab(_: *Shell, _: []const []const u8) !void {}
 
         const Map = std.StaticStringMap(Info);
 
@@ -398,23 +406,23 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
         }
 
         fn tab(shell: *Shell) void {
-            const result = CommandParser.parse(shell.buffer.constSlice());
-            const needle = switch (result) {
-                .ok => return,
-                .empty_input => "",
-                .parsing_error => |info| info.name, // TODO: error?
-                .unknown_command => |name| name,
-            };
+            const input = shell.buffer.constSlice();
 
-            const matches = utils.findMatches(command_names, needle);
-            if (matches.len == 0) return;
+            var tokenizer: argparse.Tokenizer(options.parser_options) = .new();
+            const tokens = tokenizer.getTokens(input);
+
+            if (tokens.len == 0) return;
+            const name = tokens[0];
 
             // handle command-specific completion
-            if (command_info.get(needle)) |command| {
-                return command.tab(shell) catch {};
+            if (command_info.get(name)) |command| {
+                return command.tab(shell, tokens) catch {
+                    // TODO: log or something?
+                };
             }
 
-            shell.complete(needle, matches);
+            const matches = utils.findMatches(command_names, name);
+            shell.complete(name, matches);
         }
 
         fn run(shell: *Shell, line: []const u8) !void {
