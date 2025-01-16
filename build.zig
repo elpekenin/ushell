@@ -10,15 +10,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    // Test suite
-    const test_step = b.step("test", "Run test suite");
+    // Dependencies
+    const ansi_term = b.dependency("ansi-term", .{
+        .optimize = optimize,
+        .target = target,
+    }).module("ansi-term");
 
-    const parser_tests = b.addTest(.{
-        .root_source_file = b.path("src/Parser.zig"),
-    });
-
-    const run_parser_tests = b.addRunArtifact(parser_tests);
-    test_step.dependOn(&run_parser_tests.step);
+    ushell.addImport("ansi-term", ansi_term);
 
     // Example
     const echo_exe = b.addExecutable(.{

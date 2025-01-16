@@ -352,9 +352,6 @@ pub fn Tokenizer(comptime options: Options) type {
     return struct {
         const Self = @This();
 
-        /// "whitespace" chars to split at (delimit words) when parsing
-        const delimiters = " \r\n\t\u{0}";
-
         buffer: [options.max_tokens][]const u8,
 
         pub fn new() Self {
@@ -390,7 +387,7 @@ pub fn Tokenizer(comptime options: Options) type {
 
         pub fn getTokens(self: *Self, input: []const u8) []const []const u8 {
             var n: usize = 0;
-            var iterator = std.mem.tokenizeAny(u8, input, delimiters);
+            var iterator = std.mem.tokenizeAny(u8, input, &std.ascii.whitespace);
 
             while (next(&iterator)) |token| {
                 if (n == options.max_tokens) std.debug.panic("Exhausted parser's buffer", .{});

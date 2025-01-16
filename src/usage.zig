@@ -81,7 +81,7 @@ pub fn of(comptime T: type, comptime meta: argparse.Meta, comptime name: []const
 
     // introspection of arguments
     const fields = internal.structFields(T);
-    var usage: []const u8 = p("usage: {s} {s}", .{ name, ofStruct(fields) });
+    var usage: []const u8 = p("usage: {s}{s}", .{ name, ofStruct(fields) });
 
     // append description, if provided
     if (meta.description) |description| {

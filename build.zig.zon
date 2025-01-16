@@ -3,7 +3,12 @@
     .version = "0.0.0",
     .minimum_zig_version = "0.14.0",
 
-    .dependencies = .{},
+    .dependencies = .{
+        .@"ansi-term" = .{
+            .url = "git+https://github.com/ziglibs/ansi-term#010f170cbe72786ed52645a9dd6cde27b02b47b4",
+            .hash = "12203a64b02d46e6c2e268b7da60cb11b2fa83dc580cad77cf330d1438e2280de46f",
+        },
+    },
 
     .paths = .{
         "build.zig",

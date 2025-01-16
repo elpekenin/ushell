@@ -3,6 +3,8 @@
 const std = @import("std");
 const Type = std.builtin.Type;
 
+const ansi = @import("ansi-term");
+
 const history = @import("history.zig");
 const internal = @import("internal.zig");
 const usage = @import("usage.zig");
@@ -18,69 +20,11 @@ pub const OptionalFlag = argparse.OptionalFlag;
 pub const RemainingTokens = argparse.RemainingTokens;
 
 pub const utils = @import("utils.zig");
-pub const Escape = @import("Escape.zig");
 pub const Reader = @import("Reader.zig");
 
 const Output = union(enum) {
     ok,
     err: anyerror,
-};
-
-pub const Style = struct {
-    const Self = @This();
-
-    pub const Color = enum {
-        black,
-        red,
-        green,
-        yellow,
-        blue,
-        magenta,
-        cyan,
-        white,
-        default,
-        reset,
-    };
-
-    pub const Mode = enum {
-        reset,
-        bold,
-        dim,
-        italic,
-        underline,
-        blinking,
-        inverse,
-        hidden,
-        strikethrough,
-    };
-
-    foreground: Color,
-    background: Color,
-    mode: Mode,
-
-    pub const blue: Self = .{
-        .foreground = .blue,
-        .background = .default,
-        .mode = .reset,
-    };
-
-    pub const default: Self = .{
-        .foreground = .default,
-        .background = .default,
-        .mode = .reset,
-    };
-
-    pub const green: Self = .{
-        .foreground = .green,
-        .background = .default,
-        .mode = .reset,
-    };
-
-    pub const red: Self = .{
-        .foreground = .red,
-        .background = .default,
-        .mode = .reset,
-    };
 };
 
 /// merge types(unions) into a single one
@@ -203,7 +147,8 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                 };
 
                 pub fn handle(_: @This(), shell: *Shell) void {
-                    shell.print("{s}", .{Escape.Clear});
+                    // TODO?: propagate error
+                    ansi.clear.clearScreen(shell.writer) catch {};
                 }
             },
 
@@ -438,34 +383,34 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                     return;
                 },
                 .parsing_error => |info| {
-                    shell.print("{s}", .{shell.style(.red)});
+                    shell.applyStyle(.{ .foreground = .Red });
                     shell.print("Error parsing input ({s})", .{@errorName(info.err)});
 
-                    shell.print("{s}", .{shell.style(.green)});
+                    shell.applyStyle(.{ .foreground = .Green });
                     shell.print("\nHint: run `help {s}` to see command's usage", .{info.name});
 
-                    shell.print("{s}", .{shell.style(.default)});
+                    shell.applyStyle(.{ .foreground = .Default });
                     return @as(anyerror!void, info.err); // FIXME: why?
                 },
                 .unknown_command => |name| {
-                    shell.print("{s}", .{shell.style(.red)});
+                    shell.applyStyle(.{ .foreground = .Red });
                     shell.unknown(name);
-                    shell.print("{s}", .{shell.style(.default)});
+                    shell.applyStyle(.{ .foreground = .Default });
 
                     return error.UnknownCommand;
                 },
             };
 
             errdefer |err| {
-                shell.print("{s}", .{shell.style(.red)});
+                shell.applyStyle(.{ .foreground = .Red });
                 shell.print("Error running ({s})\n", .{@errorName(err)});
 
-                shell.print("{s}", .{shell.style(.green)});
+                shell.applyStyle(.{ .foreground = .Green });
                 shell.print("\nHint: run `help {s}` to see command's usage", .{command.name});
 
                 shell.help(command.name);
 
-                shell.print("{s}", .{shell.style(.default)});
+                shell.applyStyle(.{ .foreground = .Default });
             }
 
             const info = command_info.get(command.name) orelse unreachable;
@@ -527,9 +472,12 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             shell.print("{s}", .{slice});
         }
 
-        pub fn style(_: *const Shell, s: Style) []const u8 {
-            if (!options.use_color) return "";
-            return Escape.styleFor(s);
+        pub fn applyStyle(shell: *Shell, style: ansi.style.Style) void {
+            if (!options.use_color) return;
+
+            // TODO?: store state
+            // TODO?: propagate error
+            ansi.format.updateStyle(shell.writer, style, null) catch {};
         }
     };
 }

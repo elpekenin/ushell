@@ -4,7 +4,7 @@
 
 const std = @import("std");
 
-const Ascii = @import("Ascii.zig");
+const control = std.ascii.control_code;
 
 const Self = @This();
 
@@ -58,10 +58,10 @@ pub fn next(self: *Self) !Token {
     const byte = try self.readByte();
 
     return switch (byte) {
-        Ascii.Backspace => .backspace,
-        Ascii.Tab => .tab,
-        Ascii.Newline => .newline,
-        Ascii.Escape => {
+        control.bs => .backspace,
+        control.ht => .tab,
+        control.lf => .newline,
+        control.esc => {
             if (try self.readByte() != '[') {
                 return error.InvalidEscapeSequence;
             }

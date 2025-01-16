@@ -24,13 +24,9 @@ const Commands = union(enum) {
         flag: ushell.OptionalFlag,
 
         pub fn handle(self: ushell.Args(@This()), shell: *Shell) void {
-            shell.print("{s}Received: bar={d} baz={} flag={?}{s}", .{
-                shell.style(.red),
-                self.bar,
-                self.baz,
-                self.flag,
-                shell.style(.default),
-            });
+            shell.applyStyle(.{ .foreground = .Red });
+            shell.print("Received: bar={d} baz={} flag={?}", .{ self.bar, self.baz, self.flag });
+            shell.applyStyle(.{ .foreground = .Default });
         }
     },
 };
