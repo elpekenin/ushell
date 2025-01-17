@@ -58,7 +58,7 @@ pub fn History(options: ushell.Options) type {
         // instead of a reference to it, we *must* inline this function so that
         // the slice being returned is not a dangling pointer
         pub inline fn getLine(self: *Self, i: usize) ![]const u8 {
-            if (i < self.offset or self.offset + options.max_history_size <= i) return error.LineNotFound;
+            if (i < self.offset or self.offset + self.len() <= i) return error.LineNotFound;
 
             const entry = self.entries.get(i - self.offset);
             return std.mem.sliceTo(&entry.line, 0);

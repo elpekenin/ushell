@@ -1,6 +1,7 @@
 //! Utilities to make a shell-like interface.
 
 const std = @import("std");
+const control = std.ascii.control_code;
 const Type = std.builtin.Type;
 
 const ansi = @import("ansi-term");
@@ -8,7 +9,6 @@ const ansi = @import("ansi-term");
 const history = @import("history.zig");
 const internal = @import("internal.zig");
 const usage = @import("usage.zig");
-const Ascii = @import("Ascii.zig");
 
 /// dont want to expose everything in here
 /// lets re-expose some of them, and with shorter paths
@@ -79,11 +79,23 @@ fn validate(T: type, options: Options) void {
 }
 
 pub const Options = struct {
+    /// shown at the start of each line, when prompting user for input
     prompt: []const u8 = "$ ",
+
+    /// buffer size for user input
     max_line_size: usize = 200,
+
+    /// buffer size for `history` and `! <n>` builtins
     max_history_size: usize = 10,
+
+    /// used to disable colors (ANSII escape sequences)
     use_color: bool = true,
 
+    /// whether to write input back to user
+    /// useful if the sending party is **not** printing the sent text
+    echo_input: bool = false,
+
+    /// configuration passed to `argparse.ArgumentParser`
     parser_options: argparse.Options,
 };
 
@@ -178,7 +190,17 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                 name: ?[]const u8 = null,
 
                 pub fn handle(self: @This(), shell: *Shell) void {
-                    shell.help(self.name);
+                    if (self.name) |name| {
+                        const command = command_info.get(name) orelse return shell.unknown(name);
+                        shell.print("{s}", .{command.usage});
+                    } else {
+                        const commands = utils.findMatches(command_names, "");
+
+                        shell.print("Available commands:", .{});
+                        for (commands) |name| {
+                            shell.print("\n  * {s}", .{name});
+                        }
+                    }
                 }
 
                 // pub fn tab(shell: *Shell) !void {
@@ -259,22 +281,6 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
 
         const command_names = command_info.keys();
 
-        const Help = struct {
-            fn forCommand(shell: *Shell, name: []const u8) void {
-                const command = command_info.get(name) orelse return;
-                shell.print("{s}", .{command.usage});
-            }
-
-            fn list(shell: *Shell) void {
-                const commands = utils.findMatches(command_names, "");
-
-                shell.print("Available commands:", .{});
-                for (commands) |name| {
-                    shell.print("\n  * {s}", .{name});
-                }
-            }
-        };
-
         pub fn new(
             reader: std.io.AnyReader,
             writer: std.io.AnyWriter,
@@ -305,6 +311,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                     .arrow => {}, // TODO
                     .char => |byte| {
                         shell.buffer.append(byte) catch std.debug.panic("Exhausted reception buffer", .{});
+                        if (options.echo_input) shell.print("{c}", .{byte});
                     },
                 }
             }
@@ -403,12 +410,10 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
 
             errdefer |err| {
                 shell.applyStyle(.{ .foreground = .Red });
-                shell.print("Error running ({s})\n", .{@errorName(err)});
+                shell.print("Command failed ({s})", .{@errorName(err)});
 
                 shell.applyStyle(.{ .foreground = .Green });
-                shell.print("\nHint: run `help {s}` to see command's usage", .{command.name});
-
-                shell.help(command.name);
+                shell.print("\nHint: run `help {s}` to see its usage", .{command.name});
 
                 shell.applyStyle(.{ .foreground = .Default });
             }
@@ -432,20 +437,6 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             shell.print("unknown command: {s}", .{name});
         }
 
-        fn help(shell: *Shell, maybe_name: ?[]const u8) void {
-            // NOTE: Not using the parser here so that we can identify commands from partial input
-            //
-            // This is, if we have a `foo: struct { n: u32 }` command and we receive an input of "foo",
-            // we can't fully parse the type (`n` is missing), but we can identify the type that
-            // it uses internally (the anonymous struct with a u32 field), and show the usage
-            // based on this knowledge
-            const name = maybe_name orelse return Help.list(shell);
-
-            const command = command_info.get(name) orelse return shell.unknown(name);
-
-            shell.print("{s}", .{command.usage});
-        }
-
         fn popOne(shell: *Shell) void {
             // TODO: make this stuff configurable with options as it relies on host-app implementation details
 
@@ -455,7 +446,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             // to handle that, we also send a whitespace to overwrite it
             //
             // then, print another backspace to get cursor back to intended place
-            shell.print("{c} {c}", .{ Ascii.Backspace, Ascii.Backspace });
+            shell.print("{c} {c}", .{ control.bs, control.bs });
 
             // nothing on buffer -> user deletes last char of prompt from screen -> write it back
             if (shell.buffer.popOrNull() == null) {
