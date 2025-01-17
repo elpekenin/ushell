@@ -66,11 +66,14 @@ fn ofType(comptime T: type) []const u8 {
 fn ofField(comptime field: Type.StructField) []const u8 {
     const T = field.type;
 
-    // special case
-    // without this, we would print `flag: [--flag,--no-flag]`
-    if (T == argparse.OptionalFlag) return p(" [--{0s},--no-{0s}]", .{field.name});
-
-    return p(" {s}({s}){s}", .{ field.name, ofType(T), defaultValue(field) });
+    // special cases
+    // without this, we would print stuff like `flag: [--flag,--no-flag]`
+    return switch (T) {
+        argparse.OptionalFlag => return p(" [--{0s},--no-{0s}]", .{field.name}),
+        argparse.TrueFlag => return p(" [--no-{s}]", .{field.name}),
+        argparse.FalseFlag => return p(" [--{s}]", .{field.name}),
+        else => p(" {s}({s}){s}", .{ field.name, ofType(T), defaultValue(field) }),
+    };
 }
 
 pub fn of(comptime T: type, comptime meta: argparse.Meta, comptime name: []const u8) []const u8 {

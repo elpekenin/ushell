@@ -20,12 +20,15 @@ const Commands = union(enum) {
     foo: struct {
         bar: u8,
         baz: bool,
+
         // can be written in any order in the input
-        flag: ushell.OptionalFlag,
+        opt_flag: ushell.OptionalFlag,
+        t_flag: ushell.TrueFlag,
+        f_flag: ushell.FalseFlag,
 
         pub fn handle(self: ushell.Args(@This()), shell: *Shell) void {
             shell.applyStyle(.{ .foreground = .Red });
-            shell.print("Received: bar={d} baz={} flag={?}", .{ self.bar, self.baz, self.flag });
+            shell.print("Received: {any}", .{self});
             shell.applyStyle(.{ .foreground = .Default });
         }
     },

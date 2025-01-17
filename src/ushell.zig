@@ -17,6 +17,8 @@ pub const parseToken = argparse.parseToken;
 pub const Meta = argparse.Meta;
 pub const Args = argparse.Args;
 pub const OptionalFlag = argparse.OptionalFlag;
+pub const TrueFlag = argparse.TrueFlag;
+pub const FalseFlag = argparse.FalseFlag;
 pub const RemainingTokens = argparse.RemainingTokens;
 
 pub const utils = @import("utils.zig");

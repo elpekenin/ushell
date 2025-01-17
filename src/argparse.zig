@@ -25,14 +25,39 @@ pub const Meta = struct {
 
 // WARN: Remember to implement `translatedField` for new types here
 
-/// When a field is defined as `name: OptionalFlag`, passing `--name` or `--no-name`
-/// will set `name` to `true` or `false` in the parsed type. If neither is found, value is `null`.
-///
-/// If flag is found twice (even if both times are for the same value), parser will error.
-///
-/// The parsing of this type is position independent. This is, you can input both `mkdir --parents foo`
-/// and `mkdir foo --parents`
-pub const OptionalFlag = struct {};
+// NOTE: Flags are position independent, they can be passed at any point in the input, but *never* more than once.
+
+/// A field defined as `name: OptionalFlag`, becomes a `?bool` in the parsed type.
+/// It will default to `null`, passing `--name` or `--no-name` will set it to `true` or `false` respectively.
+pub const OptionalFlag = struct {
+    fn parse(comptime name: []const u8, token: []const u8) ?bool {
+        return TrueFlag.parse(name, token) orelse FalseFlag.parse(name, token);
+    }
+};
+
+/// A field defined as `name: TrueFlag`, becomes a `bool` in the parsed type.
+/// It will default to `true`, passing `--no-name` will set it to `false` instead.
+pub const TrueFlag = struct {
+    fn parse(comptime name: []const u8, token: []const u8) ?bool {
+        if (std.mem.eql(u8, token, "no-" ++ name)) {
+            return false;
+        }
+
+        return null;
+    }
+};
+
+/// A field defined as `name: FalseFlag`, becomes a `bool` in the parsed type.
+/// It will default to `false`, passing `--name` will set it to `true` instead.
+pub const FalseFlag = struct {
+    fn parse(comptime name: []const u8, token: []const u8) ?bool {
+        if (std.mem.eql(u8, token, name)) {
+            return true;
+        }
+
+        return null;
+    }
+};
 
 /// Capture remaining tokens.
 ///
@@ -40,7 +65,6 @@ pub const OptionalFlag = struct {};
 pub const RemainingTokens = struct {};
 
 // Future ideas:
-//   * Flag with default value
 //   * Support arrays? If so, should we force N items, or *up* to N items?
 
 //
@@ -150,7 +174,7 @@ pub fn ArgumentParser(comptime Spec: type, comptime options: Options) type {
 
             // find the struct used by this tag, and parse it
             inline for (fields) |field| {
-                if (std.mem.eql(u8, field.name, tag)) {
+                if (std.mem.eql(u8, tag, field.name)) {
                     const inner = parseStruct(field.type, tokens[1..]) catch |e| {
                         return .{
                             .parsing_error = .{
@@ -195,11 +219,11 @@ pub fn ArgumentParser(comptime Spec: type, comptime options: Options) type {
 
 fn parseBool(token: []const u8) !bool {
     // TODO?: Allow other forms such as 0/1 or y/n
-    if (std.mem.eql(u8, "true", token)) {
+    if (std.mem.eql(u8, token, "true")) {
         return true;
     }
 
-    if (std.mem.eql(u8, "false", token)) {
+    if (std.mem.eql(u8, token, "false")) {
         return false;
     }
 
@@ -241,6 +265,22 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
             .default_value = &dummy,
             .is_comptime = false,
             .alignment = std.meta.alignment(?bool),
+        },
+
+        TrueFlag => .{
+            .name = field.name,
+            .type = bool,
+            .default_value = &true,
+            .is_comptime = false,
+            .alignment = std.meta.alignment(bool),
+        },
+
+        FalseFlag => .{
+            .name = field.name,
+            .type = bool,
+            .default_value = &false,
+            .is_comptime = false,
+            .alignment = std.meta.alignment(bool),
         },
 
         RemainingTokens => .{
@@ -450,15 +490,17 @@ fn parseFlag(
     const flag = token[2..];
 
     inline for (0.., internal.structFields(Spec)) |n, field| {
-        const maybe_value = if (std.mem.eql(u8, field.name, flag))
-            true
-        else if (std.mem.eql(u8, "no-" ++ field.name, flag))
-            false
-        else
-            null;
+        const T = field.type;
+
+        const maybe_value = switch (T) {
+            OptionalFlag,
+            TrueFlag,
+            FalseFlag,
+            => T.parse(field.name, flag),
+            else => null,
+        };
 
         if (maybe_value) |value| {
-            if (field.type != OptionalFlag) return error.InvalidFlag;
             @field(ret, field.name) = value;
             return parsed_fields.add(n);
         }
