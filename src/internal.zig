@@ -28,10 +28,3 @@ pub fn structFields(comptime T: type) []const Type.StructField {
 pub fn unionFields(comptime T: type) []const Type.UnionField {
     return @typeInfo(T).@"union".fields;
 }
-
-/// Get the default type of a struct field
-pub fn defaultValueOf(comptime field: Type.StructField) ?field.type {
-    const generic_ptr = field.default_value orelse return null;
-    const typed_ptr: *align(field.alignment) const field.type = @alignCast(@ptrCast(generic_ptr));
-    return typed_ptr.*;
-}

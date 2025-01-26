@@ -262,7 +262,7 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
             .name = field.name,
             .type = ?bool,
             // &null here is wrong (?)
-            .default_value = &dummy,
+            .default_value_ptr = &dummy,
             .is_comptime = false,
             .alignment = std.meta.alignment(?bool),
         },
@@ -270,7 +270,7 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
         TrueFlag => .{
             .name = field.name,
             .type = bool,
-            .default_value = &true,
+            .default_value_ptr = &true,
             .is_comptime = false,
             .alignment = std.meta.alignment(bool),
         },
@@ -278,7 +278,7 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
         FalseFlag => .{
             .name = field.name,
             .type = bool,
-            .default_value = &false,
+            .default_value_ptr = &false,
             .is_comptime = false,
             .alignment = std.meta.alignment(bool),
         },
@@ -286,7 +286,7 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
         RemainingTokens => .{
             .name = field.name,
             .type = []const []const u8,
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = std.meta.alignment([][]const u8),
         },
@@ -297,7 +297,7 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
 
 fn indexOfFirstDefault(comptime T: type) ?usize {
     for (0.., internal.structFields(T)) |i, field| {
-        if (field.default_value) |_| return i;
+        if (field.defaultValue()) |_| return i;
     }
 
     return null;
@@ -328,7 +328,7 @@ fn validateAfter(comptime fields: []const Type.StructField) void {
     var last_non_default: ?usize = null;
 
     for (0.., fields) |n, field| {
-        if (field.default_value) |_| {
+        if (field.defaultValue()) |_| {
             if (first_default == null) first_default = n;
         } else {
             last_non_default = n;
@@ -376,7 +376,7 @@ fn defaultStruct(comptime T: type) T {
 
     var out: T = undefined;
     inline for (fields) |field| {
-        if (internal.defaultValueOf(field)) |default| {
+        if (field.defaultValue()) |default| {
             @field(out, field.name) = default;
         }
     }

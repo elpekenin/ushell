@@ -8,7 +8,7 @@ const internal = @import("internal.zig");
 // TODO: support for OptionalFlag and TokensLeft
 
 fn defaultValue(comptime field: Type.StructField) []const u8 {
-    const value = internal.defaultValueOf(field) orelse return "";
+    const value = field.defaultValue() orelse return "";
 
     const T = field.type;
     const I = @typeInfo(field.type);

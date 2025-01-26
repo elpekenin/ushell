@@ -205,17 +205,13 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                     }
                 }
 
-                // pub fn tab(shell: *Shell) !void {
-                //     const maybe_input = shell.parser.next();
-                //     if (maybe_input != null) {
-                //         try shell.parser.assertExhausted();
-                //     }
+                pub fn tab(shell: *Shell, tokens: []const []const u8) !void {
+                    if (tokens.len != 2) return;
+                    const needle = tokens[1];
 
-                //     const needle = maybe_input orelse "";
-
-                //     const matches = utils.findMatches(command_names, needle);
-                //     shell.complete(needle, matches);
-                // }
+                    const matches = utils.findMatches(command_names, needle);
+                    shell.complete(needle, matches);
+                }
             },
 
             history: struct {
@@ -266,7 +262,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
                     field.name, Info{
                         .handle = struct {
                             fn impl(args: *const anyopaque, shell: *Shell) !void {
-                                const casted: *const argparse.Args(Cmd) = @alignCast(@ptrCast(args));
+                                const casted: *const argparse.Args(Cmd) = @ptrCast(@alignCast(args));
                                 return Cmd.handle(casted.*, shell);
                             }
                         }.impl,
