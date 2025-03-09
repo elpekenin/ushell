@@ -38,7 +38,7 @@ pub fn History(options: ushell.Options) type {
             return self.entries.len;
         }
 
-        pub fn pop(self: *Self) E {
+        pub fn pop(self: *Self) ?E {
             return self.entries.pop();
         }
 

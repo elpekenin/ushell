@@ -11,12 +11,12 @@ pub fn build(b: *std.Build) void {
     });
 
     // Dependencies
-    const ansi_term = b.dependency("ansi-term", .{
+    const ansi_term = b.dependency("ansi_term", .{
         .optimize = optimize,
         .target = target,
-    }).module("ansi-term");
+    }).module("ansi_term");
 
-    ushell.addImport("ansi-term", ansi_term);
+    ushell.addImport("ansi_term", ansi_term);
 
     // Example
     const echo_exe = b.addExecutable(.{

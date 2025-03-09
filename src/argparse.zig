@@ -5,7 +5,6 @@
 //! Loosely inspired by Python's stdlib
 
 const std = @import("std");
-const t = std.testing;
 const Type = std.builtin.Type;
 
 const internal = @import("internal.zig");
@@ -205,9 +204,6 @@ pub fn ArgumentParser(comptime Spec: type, comptime options: Options) type {
 // **********************************************
 //
 // Below this point, there is some internal stuff
-//   * Utility types and functions
-//   * Small test suite
-//   * Private functions used by public API
 //
 // As a user, you shouldn't need to look at them
 //
@@ -295,8 +291,8 @@ fn translatedField(comptime field: Type.StructField) Type.StructField {
     };
 }
 
-fn indexOfFirstDefault(comptime T: type) ?usize {
-    for (0.., internal.structFields(T)) |i, field| {
+fn indexOfFirstDefault(comptime fields: []const Type.StructField) ?usize {
+    for (0.., fields) |i, field| {
         if (field.defaultValue()) |_| return i;
     }
 
@@ -311,8 +307,6 @@ fn validateBefore(comptime fields: []const Type.StructField) void {
         if (remaining_tokens_index != null) internal.err("RemainingTokens must be the last field");
 
         if (field.type == RemainingTokens) {
-            if (remaining_tokens_index) |_| internal.err("RemainingTokens can only appear once");
-
             remaining_tokens_index = n;
         }
 
@@ -324,13 +318,11 @@ fn validateBefore(comptime fields: []const Type.StructField) void {
 
 /// Validate some constraints after adjusting type, before using @Type
 fn validateAfter(comptime fields: []const Type.StructField) void {
-    var first_default: ?usize = null;
-    var last_non_default: ?usize = null;
+    const first_default = indexOfFirstDefault(fields);
 
+    var last_non_default: ?usize = null;
     for (0.., fields) |n, field| {
-        if (field.defaultValue()) |_| {
-            if (first_default == null) first_default = n;
-        } else {
+        if (field.default_value_ptr == null) {
             last_non_default = n;
         }
     }
@@ -369,7 +361,7 @@ fn Struct(comptime Spec: type) type {
     return @Type(info);
 }
 
-/// Create an instance of the given struct, appyling default value
+/// Create an instance of the given struct, applying default value
 /// to those fields who have one, and letting others `undefined`
 fn defaultStruct(comptime T: type) T {
     const fields = internal.structFields(T);
@@ -465,7 +457,7 @@ fn ParsedFields(comptime Parsed: type) type {
         }
 
         fn done(self: *const Self) bool {
-            const required = comptime indexOfFirstDefault(Parsed) orelse fields.len;
+            const required = comptime indexOfFirstDefault(internal.structFields(Parsed)) orelse fields.len;
             return self.inner.count() >= required;
         }
 

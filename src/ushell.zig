@@ -4,7 +4,7 @@ const std = @import("std");
 const control = std.ascii.control_code;
 const Type = std.builtin.Type;
 
-const ansi = @import("ansi-term");
+const ansi = @import("ansi_term");
 
 const history = @import("history.zig");
 const internal = @import("internal.zig");
@@ -447,7 +447,7 @@ pub fn MakeShell(UserCommand: type, options: Options) type {
             shell.print("{c} {c}", .{ control.bs, control.bs });
 
             // nothing on buffer -> user deletes last char of prompt from screen -> write it back
-            if (shell.buffer.popOrNull() == null) {
+            if (shell.buffer.pop() == null) {
                 shell.print("{c}", .{options.prompt[options.prompt.len - 1]});
             }
         }
